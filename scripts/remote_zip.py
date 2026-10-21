@@ -2,7 +2,6 @@
 
 from collections import OrderedDict
 import io
-import re
 import urllib.request
 
 

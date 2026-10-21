@@ -15,7 +15,7 @@ def read_json(url):
 
 
 def notice(title, value):
-    message = json.dumps(value, ensure_ascii=True).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D")
+    message = json.dumps(value, ensure_ascii=False).replace("%", "%25").replace("\n", "%0A").replace("\r", "%0D")
     print(f"::notice title={title}::{message}", flush=True)
 
 
@@ -46,10 +46,11 @@ if sources:
                 url = f'https://huggingface.co/{repository}/resolve/{info["sha"]}/{quote(item["rfilename"])}'
                 with HTTPRangeFile(url, item["size"]) as remote, zipfile.ZipFile(remote) as archive:
                     names = [{"name": member.filename, "size": member.file_size} for member in archive.infolist()
-                             if any(word in member.filename.casefold() for word in
+                             if member.filename.lower().endswith(".pth") and ("Актеры дублежа/" in member.filename or any(word in member.filename.casefold() for word in
                                 ("deadpool", "дэдпул", "бэтмен", "бетмен", "batman", "loki", "локи", "танос", "thanos",
-                                 "tony", "тони", "старк", "желез", "iron", "гаврил", "мясник", "зайцев", "thor"))]
-                    notice("Archive characters " + repository, names[:30])
+                                 "tony", "тони", "старк", "желез", "iron", "гаврил", "мясник", "зайцев", "thor")))]
+                    for offset in range(0, min(len(names), 48), 8):
+                        notice("Archive character models " + str(offset), names[offset:offset + 8])
     raise SystemExit(0)
 
 catalogue = read_json("https://huggingface.co/wok000/vcclient_model/raw/main/samples_0004_o.json")
