@@ -2,6 +2,11 @@ name: Inspect neural model assets
 
 on:
   workflow_dispatch:
+    inputs:
+      sources:
+        description: 'JSON array of Hugging Face repositories to inspect'
+        default: '[]'
+        required: false
 
 permissions:
   contents: read
@@ -16,4 +21,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Inspect public model schemas and source hashes
+        env:
+          MODEL_SOURCES: ${{ inputs.sources }}
         run: python scripts/inspect-neural-assets.py
