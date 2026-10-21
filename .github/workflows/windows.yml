@@ -1,0 +1,44 @@
+name: Windows app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install locked dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Test DSP, audio routing, and desktop UI
+        run: python -m pytest -q
+      - name: Build standalone Windows folder
+        run: python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile scripts/desktop_entry.py
+      - name: Smoke test packaged DSP
+        shell: pwsh
+        run: |
+          python -c "import numpy as np, soundfile as sf; sf.write('smoke-input.wav', np.sin(2*np.pi*220*np.arange(48000)/48000)*0.2, 48000)"
+          $process = Start-Process -FilePath dist/VoiceLab/VoiceLab.exe -ArgumentList '--render', 'smoke-input.wav', 'smoke-output.wav', '--preset', 'sakura' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Packaged app failed' }
+          python -c "import numpy as np, soundfile as sf; a,r=sf.read('smoke-output.wav'); assert r==48000 and len(a)==96000 and np.max(np.abs(a))>0.01"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VoiceLab-Windows-x64
+          path: dist/VoiceLab/
+          if-no-files-found: error
