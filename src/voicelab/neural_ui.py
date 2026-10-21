@@ -176,6 +176,14 @@ class NeuralPanel(QWidget):
         if chosen >= 0:
             self.provider.setCurrentIndex(chosen)
         layout.addWidget(self.provider)
+        self.profile = QComboBox()
+        self.profile.setAccessibleName("Профиль нагрузки AI")
+        self.profile.addItem("Лёгкий AI — меньше нагрузки", "light")
+        self.profile.addItem("Полный AI — больше памяти", "full")
+        self.profile.setCurrentIndex(1 if preferences.get("ai_profile") == "full" else 0)
+        self.profile.setToolTip("Лёгкий: меньше расход памяти и работы на каждом блоке; передача высоты голоса может быть менее точной. "
+                                "Полный: более точное определение высоты, но выше нагрузка и расход памяти.")
+        layout.addWidget(self.profile)
         self.buffer = QComboBox()
         for milliseconds in (160, 320, 480, 640):
             self.buffer.addItem(f"Буфер AI: {milliseconds} мс", milliseconds)
@@ -183,14 +191,14 @@ class NeuralPanel(QWidget):
         self.buffer.setCurrentIndex(selected_buffer if selected_buffer >= 0 else 1)
         self.buffer.setToolTip("Меньший буфер уменьшает задержку. При прерываниях звука выберите больший.")
         layout.addWidget(self.buffer)
-        for combo in (self.voice_combo, self.provider, self.buffer):
+        for combo in (self.voice_combo, self.provider, self.profile, self.buffer):
             combo.setMinimumContentsLength(12)
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
         self.reload(preferences.get("ai_voice"))
-        for combo in (self.mode, self.voice_combo, self.provider, self.buffer):
+        for combo in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer):
             combo.currentIndexChanged.connect(self.update_state)
         self.update_state()
 
@@ -226,6 +234,7 @@ class NeuralPanel(QWidget):
     def update_state(self, *args):
         self.voice_combo.setVisible(self.active)
         self.provider.setVisible(self.active)
+        self.profile.setVisible(self.active)
         self.buffer.setVisible(self.active)
         self.add_button.setVisible(self.active)
         if self.active:
@@ -242,7 +251,7 @@ class NeuralPanel(QWidget):
         self.changed.emit()
 
     def set_running(self, running):
-        for widget in (self.mode, self.voice_combo, self.provider, self.buffer, self.add_button):
+        for widget in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer, self.add_button):
             widget.setEnabled(not running)
 
     def add_voice(self):
@@ -257,4 +266,5 @@ class NeuralPanel(QWidget):
 
     def settings(self):
         return {"voice_mode": self.mode.currentData(), "ai_voice": self.voice_combo.currentData(),
-                "ai_provider": self.provider.currentData(), "ai_buffer_ms": self.buffer.currentData()}
+                "ai_provider": self.provider.currentData(), "ai_buffer_ms": self.buffer.currentData(),
+                "ai_profile": self.profile.currentData()}

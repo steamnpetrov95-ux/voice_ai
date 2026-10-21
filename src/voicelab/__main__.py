@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--voice-name", default="AI-голос")
     parser.add_argument("--ai-voice", metavar="ID", help="Использовать AI-модель при --render")
     parser.add_argument("--ai-provider", choices=("auto", "cpu", "dml"), default="auto")
+    parser.add_argument("--ai-profile", choices=("light", "full"), default="light")
     args = parser.parse_args()
     if args.render:
         from .effects import render_file
@@ -25,7 +26,7 @@ def main():
                 voice = next((item for item in installed_voices() if item.id == args.ai_voice), None)
                 if voice is None:
                     raise ValueError("AI-голос не найден. Используйте --list-voices.")
-            result = render_file(*args.render, PRESET_BY_ID[args.preset].settings, voice, args.ai_provider)
+            result = render_file(*args.render, PRESET_BY_ID[args.preset].settings, voice, args.ai_provider, args.ai_profile)
         except (OSError, RuntimeError, ValueError) as exc:
             parser.exit(1, f"Ошибка: {exc}\n")
         print(json.dumps(result))

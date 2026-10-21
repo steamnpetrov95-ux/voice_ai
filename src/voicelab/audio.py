@@ -54,6 +54,8 @@ class AudioEngine:
         self.neural_voice = None
         self.neural_provider = "auto"
         self.neural_buffer_ms = 320
+        self.neural_profile = "light"
+        self.stage_ms = {}
         self.loading = False
         self.processing_ms = 0.0
         self.provider_label = ""
@@ -77,13 +79,16 @@ class AudioEngine:
         # Frozen settings are replaced atomically. The worker owns all DSP objects.
         self.settings = settings
 
-    def configure_neural(self, voice=None, provider="auto", buffer_ms=320):
+    def configure_neural(self, voice=None, provider="auto", buffer_ms=320, profile="light"):
         if self.running:
             raise RuntimeError("Остановите микрофон перед сменой AI-голоса.")
         if buffer_ms not in (160, 320, 480, 640):
             raise ValueError("Неподдерживаемый размер буфера AI.")
+        if profile not in ("light", "full"):
+            raise ValueError("Неизвестный профиль AI.")
         self.neural_voice, self.neural_provider = voice, provider
         self.neural_buffer_ms = buffer_ms
+        self.neural_profile = profile
 
     def start(self, input_device: int, output_device: int | None = None):
         if self.running:
@@ -92,6 +97,7 @@ class AudioEngine:
             raise RuntimeError("Дождитесь завершения предыдущей обработки AI и повторите запуск.")
         self.loading = self.neural_voice is not None
         self.processing_ms = 0.0
+        self.stage_ms = {}
         self.provider_label = ""
         self.error = ""
         self.dropouts = 0
@@ -219,8 +225,8 @@ class AudioEngine:
             neural = None
             if self.neural_voice:
                 from .neural import NeuralConverter
-                neural = NeuralConverter(self.neural_voice, self.sample_rate, self.neural_provider)
-                self.provider_label = neural.provider.replace("ExecutionProvider", "")
+                neural = NeuralConverter(self.neural_voice, self.sample_rate, self.neural_provider, self.neural_profile)
+                self.provider_label = "DirectML (GPU)" if neural.provider == "DmlExecutionProvider" else "CPU"
                 # Audio captured while loading a model must never replay later.
                 while not self._in_queue.empty():
                     try:
@@ -244,6 +250,7 @@ class AudioEngine:
                 converted = neural.process(block, settings.pitch) if neural and settings.enabled else block
                 result = processor.process(converted)
                 self.processing_ms = (time.perf_counter() - started) * 1000
+                self.stage_ms = dict(getattr(neural, "stage_ms", {})) if neural else {}
                 if self._stop.is_set():
                     break
                 self.input_level = float(np.max(np.abs(block))) if block.size else 0

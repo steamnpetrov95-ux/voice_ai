@@ -69,7 +69,8 @@ class VoiceProcessor:
         return np.clip(np.nan_to_num(audio), -1, 1).astype(np.float32, copy=False)
 
 
-def render_file(source: str | Path, destination: str | Path, settings: VoiceSettings, voice=None, provider="auto") -> dict:
+def render_file(source: str | Path, destination: str | Path, settings: VoiceSettings,
+                voice=None, provider="auto", profile="light") -> dict:
     """Render WAV/FLAC/etc. as mono WAV. Existing files are never overwritten."""
     source, destination = Path(source), Path(destination)
     if source.resolve() == destination.resolve():
@@ -80,7 +81,7 @@ def render_file(source: str | Path, destination: str | Path, settings: VoiceSett
         block_size = BLOCK_SIZE
         if voice is not None and settings.enabled:
             from .neural import AI_BLOCK_SIZE, NeuralConverter
-            neural = NeuralConverter(voice, incoming.samplerate, provider)
+            neural = NeuralConverter(voice, incoming.samplerate, provider, profile)
             block_size = AI_BLOCK_SIZE
         processor = VoiceProcessor(incoming.samplerate, replace(settings, pitch=0) if neural else settings)
         with destination.open("xb") as handle:

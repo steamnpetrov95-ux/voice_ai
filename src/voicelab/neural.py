@@ -8,9 +8,12 @@ from dataclasses import dataclass
 import json
 import math
 from pathlib import Path
+import time
 
 import numpy as np
 from scipy.signal import resample_poly
+
+from .f0 import fast_pitch
 
 
 AI_BLOCK_SIZE = 15360
@@ -58,6 +61,10 @@ def _session(path, provider):
     options.log_severity_level = 3
     options.enable_mem_pattern = preferred != "DmlExecutionProvider"
     options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    # Sleeping between calls avoids four session thread pools burning CPU while
+    # another model or the audio callback needs the older host processor.
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    options.add_session_config_entry("session.inter_op.allow_spinning", "0")
     providers = [preferred]
     if preferred != "CPUExecutionProvider":
         providers.append("CPUExecutionProvider")
@@ -94,25 +101,31 @@ def voice_metadata(session):
 
 
 class NeuralConverter:
-    """One loaded voice, a 640 ms history and SOLA stitching; owned by the audio worker."""
+    """One loaded voice and bounded context; owned by the audio worker."""
 
-    def __init__(self, voice: NeuralVoice, sample_rate: int, provider="auto"):
+    def __init__(self, voice: NeuralVoice, sample_rate: int, provider="auto", profile="full"):
+        if profile not in ("light", "full"):
+            raise ValueError("Неизвестный профиль AI.")
         self.voice = voice
         self.sample_rate = sample_rate
+        self.profile = profile
+        self.stage_ms = {}
         self.synth = _session(voice.model, provider)
         self.decoder = _session(voice.decoder, provider) if voice.decoder else None
         rate, channels = voice_metadata(self.synth)
         if (rate, channels) != (voice.sample_rate, voice.channels):
             raise ValueError("Модель голоса изменилась. Импортируйте её заново.")
         self.encoder = _session(voice.encoder, provider)
-        self.pitch = _session(voice.pitch, provider)
+        # Light mode keeps genuine RVC timbre conversion, but replaces the large
+        # RMVPE network with a small numerical F0 tracker and shorter context.
+        self.pitch = _session(voice.pitch, provider) if profile == "full" else None
         encoder_shape = self.encoder.get_inputs()[0].shape
         if len(encoder_shape) != 3:
             raise ValueError("Нужен ContentVec ONNX формата [1, 1, samples].")
-        if {item.name for item in self.pitch.get_inputs()} != {"waveform", "threshold"}:
+        if self.pitch is not None and {item.name for item in self.pitch.get_inputs()} != {"waveform", "threshold"}:
             raise ValueError("Нужен RMVPE ONNX с входами waveform и threshold.")
         self.provider = self.synth.get_providers()[0]
-        self.history = np.zeros(10240, np.float32)
+        self.history = np.zeros(2560 if profile == "light" else 10240, np.float32)
         self.overlap = round(sample_rate * 0.04)
         self.search = round(sample_rate * 0.012)
         self.tail = np.zeros(self.overlap, np.float32)
@@ -122,11 +135,17 @@ class NeuralConverter:
         self.history.fill(0)
         self.tail.fill(0)
 
+    def _run(self, session, feeds, stage):
+        started = time.perf_counter()
+        result = session.run(None, feeds)
+        self.stage_ms[stage] = (time.perf_counter() - started) * 1000
+        return result
+
     def _convert(self, audio, pitch_shift):
         encoder_input = self.encoder.get_inputs()[0]
         # A small symmetric pad compensates for ContentVec's convolution edges.
         padded = np.pad(audio, (160, 160), mode="reflect")
-        encoded = self.encoder.run(None, {encoder_input.name: padded[None, None, :].astype(_dtype(encoder_input))})[0]
+        encoded = self._run(self.encoder, {encoder_input.name: padded[None, None, :].astype(_dtype(encoder_input))}, "encoder")[0]
         if encoded.ndim != 3:
             raise ValueError(f"Некорректная размерность кодировщика: {encoded.shape}.")
         if encoded.shape[-1] == self.voice.channels:
@@ -136,11 +155,16 @@ class NeuralConverter:
         else:
             raise ValueError(f"Размерность кодировщика {encoded.shape} не совпадает с голосовой моделью ({self.voice.channels}).")
         features = np.repeat(features, 2, axis=1)
-        pitch_inputs = {item.name: item for item in self.pitch.get_inputs()}
-        frequency = self.pitch.run(None, {
-            "waveform": padded[None, :].astype(_dtype(pitch_inputs["waveform"])),
-            "threshold": np.array([0.3], dtype=_dtype(pitch_inputs["threshold"])),
-        })[0].reshape(-1).astype(np.float32)
+        if self.pitch is None:
+            started = time.perf_counter()
+            frequency = fast_pitch(audio)
+            self.stage_ms["pitch"] = (time.perf_counter() - started) * 1000
+        else:
+            pitch_inputs = {item.name: item for item in self.pitch.get_inputs()}
+            frequency = self._run(self.pitch, {
+                "waveform": padded[None, :].astype(_dtype(pitch_inputs["waveform"])),
+                "threshold": np.array([0.3], dtype=_dtype(pitch_inputs["threshold"])),
+            }, "pitch")[0].reshape(-1).astype(np.float32)
         length = min(features.shape[1], len(frequency), len(audio) // 160)
         if length < 1:
             raise RuntimeError("Модель не вернула кадров речи.")
@@ -162,7 +186,7 @@ class NeuralConverter:
             else:
                 value = values[aliases.get(item.name, item.name)]
             feeds[item.name] = value.astype(_dtype(item), copy=False)
-        outputs = self.synth.run(None, feeds)
+        outputs = self._run(self.synth, feeds, "voice")
         if self.decoder is not None:
             latent = outputs[0] * outputs[1]
             # Decode only the new block plus overlap, keeping attention context
@@ -170,8 +194,8 @@ class NeuralConverter:
             frames = min(length, math.ceil(self._needed_samples * 100 / self.sample_rate) + 1)
             decoder_values = {"z": latent[:, :, -frames:], "nsff0": frequency[None, -frames:],
                               "sid": np.array([0], dtype=np.int64)}
-            output = self.decoder.run(None, {item.name: decoder_values[item.name].astype(_dtype(item))
-                                            for item in self.decoder.get_inputs()})[0].reshape(-1)
+            output = self._run(self.decoder, {item.name: decoder_values[item.name].astype(_dtype(item))
+                                             for item in self.decoder.get_inputs()}, "decoder")[0].reshape(-1)
         else:
             output = outputs[0].reshape(-1)
         if not np.isfinite(output).all():
@@ -186,6 +210,7 @@ class NeuralConverter:
         self.history = audio[-len(self.history):].copy()
         if np.max(np.abs(audio), initial=0) < 1e-5:
             self.tail.fill(0)
+            self.stage_ms.clear()
             return np.zeros_like(block)
         required = len(block) + self.overlap + self.search
         self._needed_samples = required
@@ -194,9 +219,10 @@ class NeuralConverter:
             raise RuntimeError("Выход AI-модели короче входа. Проверьте частоту модели.")
         segment = output[-required:]
         # SOLA aligns successive independently synthesized windows before crossfade.
-        windows = np.lib.stride_tricks.sliding_window_view(segment[:self.overlap + self.search], self.overlap)
-        numerator = windows @ self.tail
-        energy = np.sqrt(np.sum(windows * windows, axis=1) + 1e-8)
+        window = segment[:self.overlap + self.search]
+        numerator = np.correlate(window, self.tail, mode="valid")
+        squared = np.concatenate(([0.0], np.cumsum(window.astype(np.float64) ** 2)))
+        energy = np.sqrt(np.maximum(squared[self.overlap:] - squared[:-self.overlap], 0) + 1e-8)
         offset = int(np.argmax(numerator / energy)) if np.any(self.tail) else 0
         segment = segment[offset:offset + len(block) + self.overlap].copy()
         fade = np.linspace(0, 1, self.overlap, dtype=np.float32)

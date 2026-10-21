@@ -218,3 +218,15 @@ def test_installed_ai_voices_are_selectable_and_persisted(window, monkeypatch, t
     assert window.ai.settings()["ai_voice"] == "1"
     window.search.setText("два")
     assert window.ai_buttons["0"].isHidden() and not window.ai_buttons["1"].isHidden()
+
+
+def test_ai_profile_defaults_to_light_and_respects_saved_choice(qt_app):
+    from voicelab.neural_ui import NeuralPanel
+    for preferences, expected in (({}, "light"), ({"ai_profile": "full"}, "full")):
+        panel = NeuralPanel(preferences)
+        assert panel.profile.currentData() == panel.settings()["ai_profile"] == expected
+        panel.set_running(True)
+        assert not panel.profile.isEnabled()
+        panel.set_running(False)
+        assert panel.profile.isEnabled()
+        delete(panel)

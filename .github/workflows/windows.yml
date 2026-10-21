@@ -67,6 +67,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Neural export dependency installation failed' }
           .neural-build/Scripts/python scripts/prepare-neural-voices.py
           if ($LASTEXITCODE -ne 0) { throw 'Neural model preparation failed' }
+      - name: Compare light and full AI speed and memory on real speech
+        if: (startsWith(github.ref, 'refs/tags/') || inputs.include_neural_models || inputs.publish_release) && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: .neural-build/Scripts/python scripts/benchmark-neural.py
       - name: Build application and single EXE installer
         shell: pwsh
         run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true') -IncludeNeuralVoices:(Test-Path dist/neural-models/SOURCES.json)
@@ -135,7 +140,7 @@ jobs:
             gh release create $tag --target $env:GITHUB_SHA --draft --title "npetrov VoiceLab $tag" --notes-file docs/RELEASE_NOTES.md
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
           }
-          gh release upload $tag dist/installer/VoiceLab-Setup.exe dist/installer/VoiceLab-Setup.exe.sha256 --clobber
+          gh release upload $tag dist/installer/VoiceLab-Setup.exe dist/installer/VoiceLab-Setup.exe.sha256 dist/neural-benchmark.json --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Could not upload the verified installer' }
           gh release edit $tag --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified installer' }

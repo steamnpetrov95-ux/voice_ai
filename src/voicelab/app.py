@@ -126,15 +126,16 @@ class RenderWorker(QObject):
     finished = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, source, destination, settings, voice=None, provider="auto"):
+    def __init__(self, source, destination, settings, voice=None, provider="auto", profile="light"):
         super().__init__()
         self.source, self.destination, self.settings = source, destination, settings
         self.voice, self.provider = voice, provider
+        self.profile = profile
 
     @Slot()
     def run(self):
         try:
-            render_file(self.source, self.destination, self.settings, self.voice, self.provider)
+            render_file(self.source, self.destination, self.settings, self.voice, self.provider, self.profile)
             self.finished.emit(self.destination)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -585,7 +586,8 @@ class MainWindow(QMainWindow):
             return
         try:
             self.engine.configure_neural(self.ai.voice if self.ai.active else None,
-                                         self.ai.provider.currentData(), self.ai.buffer.currentData())
+                                         self.ai.provider.currentData(), self.ai.buffer.currentData(),
+                                         self.ai.profile.currentData())
             output = self.output_combo.currentData() if self.routing_combo.currentData() == "virtual" else None
             self.engine.start(self.input_combo.currentData(), output)
             self._last_error = ""
@@ -656,7 +658,8 @@ class MainWindow(QMainWindow):
             self.start_button.setEnabled(False)
         thread = QThread(self)
         worker = RenderWorker(source, destination, self.engine.settings,
-                              self.ai.voice if self.ai.active else None, self.ai.provider.currentData())
+                              self.ai.voice if self.ai.active else None, self.ai.provider.currentData(),
+                              self.ai.profile.currentData())
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self.render_finished)
@@ -696,7 +699,10 @@ class MainWindow(QMainWindow):
             elif self.engine.neural_voice:
                 self.status.setText(f"●  AI: {self.engine.neural_voice.name.split(' — ')[0]}")
                 duration = self.engine.block_size * 1000 / self.engine.sample_rate
-                self.rate_label.setText(f"{self.engine.provider_label} · обработка {self.engine.processing_ms:.0f} мс / блок {duration:.0f} мс")
+                profile = "лёгкий AI" if self.engine.neural_profile == "light" else "полный AI"
+                self.rate_label.setText(f"{self.engine.provider_label} · {profile} · {self.engine.processing_ms:.0f} мс / блок {duration:.0f} мс")
+                names = {"encoder": "Анализ речи", "pitch": "Высота голоса", "voice": "Модель голоса", "decoder": "Синтез"}
+                self.rate_label.setToolTip("\n".join(f"{names.get(key, key)}: {value:.0f} мс" for key, value in self.engine.stage_ms.items()))
         if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
             self.monitor_check.setChecked(False)
         if self.engine.monitor_error:
@@ -712,7 +718,7 @@ class MainWindow(QMainWindow):
             if self.engine.loading:
                 self.signal_hint.setText("Загрузка нейросетей. Звук начнёт передаваться после подготовки модели.")
             elif self.engine.neural_voice and self.engine.processing_ms > self.engine.block_size * 1000 / self.engine.sample_rate:
-                self.signal_hint.setText("AI не успевает за речью. Остановите микрофон и увеличьте буфер AI или выберите видеокарту.")
+                self.signal_hint.setText("AI не успевает за речью. Остановите микрофон: выберите лёгкий AI, видеокарту и буфер 480/640 мс.")
             else:
                 self.signal_hint.setText(f"Потери аудиобуфера: {self.engine.dropouts}. При росте счётчика закройте тяжёлые приложения.")
         else:

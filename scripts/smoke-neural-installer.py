@@ -22,10 +22,11 @@ with tempfile.TemporaryDirectory(prefix="npetrov-neural-smoke-") as directory:
     sf.write(source, np.sin(2 * np.pi * 180 * np.arange(15360) / 48000) * 0.2, 48000)
     for path in manifests:
         value = json.loads(path.read_text(encoding="utf-8"))
-        output = root / (value["id"] + ".wav")
-        subprocess.run([str(args.app), "--render", str(source), str(output), "--ai-voice", value["id"],
-                        "--ai-provider", "cpu"], check=True, timeout=120)
-        result, rate = sf.read(output)
-        assert rate == 48000 and len(result) == 15360
-        assert np.isfinite(result).all() and np.max(np.abs(result)) > 1e-5
-        print("Installed neural voice validated: " + value["name"], flush=True)
+        for profile in ("light", "full"):
+            output = root / (value["id"] + "-" + profile + ".wav")
+            subprocess.run([str(args.app), "--render", str(source), str(output), "--ai-voice", value["id"],
+                            "--ai-provider", "cpu", "--ai-profile", profile], check=True, timeout=120)
+            result, rate = sf.read(output)
+            assert rate == 48000 and len(result) == 15360
+            assert np.isfinite(result).all() and np.max(np.abs(result)) > 1e-5
+            print("Installed neural voice validated: " + value["name"] + " / " + profile, flush=True)

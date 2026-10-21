@@ -253,7 +253,8 @@ def test_neural_voice_is_processed_once_and_sent_to_both_outputs(devices, monkey
     class Converter:
         provider = "CPUExecutionProvider"
 
-        def __init__(self, voice, rate, provider):
+        def __init__(self, voice, rate, provider, profile):
+            assert profile == "light"
             instances.append(self)
 
         def process(self, samples, pitch):

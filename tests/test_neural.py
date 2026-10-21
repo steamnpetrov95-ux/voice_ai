@@ -79,6 +79,58 @@ def test_unsupported_provider_is_explicit_error(voice, monkeypatch):
         neural.NeuralConverter(voice, 48000, "dml")
 
 
+@pytest.mark.parametrize("frequency", [65, 100, 180, 260, 440, 800])
+def test_fast_pitch_tracks_fundamental_with_harmonics(frequency):
+    from voicelab.f0 import fast_pitch
+    time = np.arange(16000) / 16000
+    audio = 0.1 * np.sin(2 * np.pi * frequency * time) + 0.07 * np.sin(4 * np.pi * frequency * time)
+    pitch = fast_pitch(audio)[5:-5]
+    assert len(pitch) == 90
+    assert np.count_nonzero(pitch) >= 88
+    assert np.median(pitch) == pytest.approx(frequency, rel=0.015)
+
+
+def test_fast_pitch_does_not_voice_silence_dc_or_noise():
+    from voicelab.f0 import fast_pitch
+    for audio in (np.zeros(16000), np.full(16000, 0.3), np.random.default_rng(7).normal(0, 0.1, 16000)):
+        assert not fast_pitch(audio).any()
+    assert fast_pitch(np.zeros(80)).shape == (0,)
+
+
+def test_light_profile_runs_without_loading_pitch_network(voice, monkeypatch):
+    loaded = []
+    original = neural._session
+
+    def session(path, provider):
+        loaded.append(path)
+        assert path != voice.pitch, "Light AI must not allocate the RMVPE network"
+        return original(path, provider)
+
+    monkeypatch.setattr(neural, "_session", session)
+    converter = neural.NeuralConverter(voice, 48000, "cpu", "light")
+    assert len(loaded) == 2
+    assert len(converter.history) == 2560
+    samples = np.sin(2 * np.pi * 180 * np.arange(15360) / 48000).astype(np.float32) * 0.1
+    first, second = converter.process(samples), converter.process(samples)
+    assert first.shape == second.shape == samples.shape
+    assert np.isfinite(second).all() and np.max(np.abs(second)) > 0.1
+    assert set(converter.stage_ms) == {"encoder", "pitch", "voice"}
+
+
+def test_light_profile_pitch_preserves_voicing_and_semitone_shift(voice):
+    converter = neural.NeuralConverter(voice, 48000, "cpu", "light")
+    feeds = []
+    real = converter.synth
+    converter.synth = SimpleNamespace(get_inputs=real.get_inputs,
+                                     run=lambda names, values: (feeds.append(values) or real.run(names, values)))
+    samples = np.sin(2 * np.pi * 180 * np.arange(15360) / 48000).astype(np.float32) * 0.1
+    converter.process(samples, 12)
+    values = feeds[0]
+    assert values["feats"].shape == (1, 48, 768)
+    assert not values["pitchf"][0, :10].any()
+    assert np.median(values["pitchf"][0, 24:44]) == pytest.approx(360, rel=0.02)
+
+
 def test_resampling_preserves_duration_and_frequency():
     source = np.sin(2 * np.pi * 220 * np.arange(44100) / 44100).astype(np.float32)
     result = neural.resample(source, 44100, 16000)

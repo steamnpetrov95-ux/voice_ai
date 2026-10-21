@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voicelab-desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local voice effects and microphone routing for Windows"
 requires-python = ">=3.11,<3.14"
 dependencies = [
