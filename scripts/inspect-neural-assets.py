@@ -2,6 +2,7 @@
 
 import json
 import urllib.request
+from urllib.parse import quote
 
 
 def read_json(url):
@@ -22,3 +23,6 @@ for repository in ("NaruseMioShirakana/MoeSS-SUBModel", "wok000/weights_gpl"):
         "id": info["id"], "sha": info["sha"], "cardData": info.get("cardData"),
         "siblings": [s for s in info["siblings"] if any(word in s["rfilename"] for word in ("vec-", "rmvpe", "README"))],
     })
+for query in ("Тони", "Старк", "Локи", "Гаврилин", "Дэдпул", "Бэтмен", "Танос", "Deadpool", "Batman", "Loki", "Thanos", "rvc russian"):
+    matches = read_json(f"https://huggingface.co/api/models?search={quote(query)}&limit=15")
+    notice("Voice search " + query, [{"id": item["id"], "tags": item.get("tags", [])} for item in matches])
