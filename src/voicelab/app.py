@@ -20,6 +20,7 @@ from .neural_ui import NeuralPanel
 from .presets import CATEGORIES, PRESETS, PRESET_BY_ID
 from .routing import is_virtual_input, is_virtual_output
 from .settings import load_preferences, save_preferences
+from .voice_roles import actor_roles, roles_caption, roles_description
 
 
 STYLE = """
@@ -389,7 +390,7 @@ class MainWindow(QMainWindow):
         self.timer.start(50)
 
     def filter_presets(self, *args):
-        query = self.search.text().strip().casefold()
+        query = self.search.text().strip().casefold().replace("ё", "е")
         category = self.category_combo.currentText()
         visible = 0
         self.category_combo.setEnabled(not self.ai.active)
@@ -415,10 +416,12 @@ class MainWindow(QMainWindow):
                     button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
                     button.clicked.connect(lambda checked=False, key=voice.id: self.ai.voice_combo.setCurrentIndex(self.ai.voice_combo.findData(key)))
                     self.ai_buttons[voice.id] = button
-                button.setText(voice.name.split(" — ")[0])
-                button.setToolTip(f"Нейросетевая модель: {voice.name}\n{voice.credit}")
+                roles = actor_roles(voice.name)
+                button.setText("\n".join([voice.name.split(" — ")[0], *(role for role, _ in roles)]))
+                button.setMinimumHeight(180 if roles else 140)
+                button.setToolTip(f"Нейросетевая модель: {voice.name}\n{roles_description(voice.name)}\n{voice.credit}".strip())
                 button.setChecked(self.ai.voice is not None and voice.id == self.ai.voice.id)
-                matches = query in voice.name.casefold()
+                matches = query in f"{voice.name} {roles_description(voice.name)}".casefold().replace("ё", "е")
                 button.setVisible(matches)
                 if matches:
                     self.preset_grid.addWidget(button, visible // 4, visible % 4)
@@ -448,8 +451,13 @@ class MainWindow(QMainWindow):
         self._previous_ai_active = self.ai.active
         self.filter_presets()
         if self.ai.active:
-            self.description.setText(f"AI: {self.ai.voice.name}. Голос преобразуется локальной нейросетью."
-                                     if self.ai.voice else "Для естественной замены нужна обученная модель голоса.")
+            if self.ai.voice:
+                caption = roles_caption(self.ai.voice.name)
+                self.description.setText(f"AI: {self.ai.voice.name}. "
+                                         + (roles_description(self.ai.voice.name) + " " if caption else "")
+                                         + "Голос преобразуется локальной нейросетью.")
+            else:
+                self.description.setText("Для естественной замены нужна обученная модель голоса.")
         else:
             self.description.setText(self.selected.description)
         if not self.engine.running:

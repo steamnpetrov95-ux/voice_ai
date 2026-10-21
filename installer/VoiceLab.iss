@@ -1,7 +1,7 @@
 ﻿; Compile after PyInstaller has created dist\VoiceLab.
 ; One downloadable installer; Python and Qt are included in the application.
 #ifndef AppVersion
-  #define AppVersion "0.2.0"
+  #define AppVersion "0.2.1"
 #endif
 
 [Setup]
@@ -22,7 +22,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\dist\installer
 OutputBaseFilename=VoiceLab-Setup
-Compression=lzma2
+Compression=lzma2/fast
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\VoiceLab.exe

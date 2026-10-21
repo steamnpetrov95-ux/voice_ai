@@ -2,13 +2,14 @@
 
 import threading
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel,
     QLineEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
 from .models import DownloadCancelled, install_voice, installed_voices
+from .voice_roles import roles_caption, roles_description
 
 
 class InstallWorker(QObject):
@@ -211,7 +212,12 @@ class NeuralPanel(QWidget):
         self.voice_combo.clear()
         self.voices = installed_voices()
         for voice in self.voices:
-            self.voice_combo.addItem(voice.name, voice.id)
+            caption = roles_caption(voice.name)
+            title = voice.name.split(" — ")[0] + " — " + caption if caption else voice.name
+            self.voice_combo.addItem(title, voice.id)
+            self.voice_combo.setItemData(self.voice_combo.count() - 1,
+                                         roles_description(voice.name) or voice.name,
+                                         Qt.ItemDataRole.ToolTipRole)
         index = self.voice_combo.findData(identifier)
         if index >= 0:
             self.voice_combo.setCurrentIndex(index)
@@ -223,8 +229,14 @@ class NeuralPanel(QWidget):
         self.buffer.setVisible(self.active)
         self.add_button.setVisible(self.active)
         if self.active:
-            self.note.setText("Модель: " + self.voice.name + ". Интонации и язык следуют вашей речи."
-                              if self.voice else "AI-голоса пока не установлены. Добавьте обученную модель нужного персонажа.")
+            if self.voice:
+                roles = roles_description(self.voice.name)
+                self.note.setText("Модель: " + self.voice.name + ".\n" + (roles + "\n" if roles else "")
+                                  + "Интонации и язык следуют вашей речи.")
+                self.voice_combo.setToolTip(roles or self.voice.name)
+            else:
+                self.note.setText("AI-голоса пока не установлены. Добавьте обученную модель нужного персонажа.")
+                self.voice_combo.setToolTip("")
         else:
             self.note.setText("48 наборов эффектов. Для естественной замены личности голоса выберите режим AI.")
         self.changed.emit()
