@@ -35,11 +35,16 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+#ifdef IntegrateNeuralVoices
+Name: "neuralvoices"; Description: "{cm:InstallNeuralVoices}"; GroupDescription: "{cm:AdditionalIcons}"
+#endif
 #ifdef IntegrateVBCable
 Name: "virtualmic"; Description: "{cm:InstallVirtualMic}"; GroupDescription: "{cm:AdditionalIcons}"
 #endif
 
 [CustomMessages]
+english.InstallNeuralVoices=Install six offline Russian neural voices
+russian.InstallNeuralVoices=Установить шесть нейросетевых голосов русской озвучки (работают без интернета)
 english.InstallVirtualMic=Install the VB-CABLE virtual microphone (Internet and administrator permission required)
 english.InstallingVirtualMic=Installing the virtual microphone...
 english.DriverFailed=npetrov VoiceLab is installed. Virtual microphone setup did not finish. You can retry it from npetrov VoiceLab.
@@ -49,6 +54,9 @@ russian.DriverFailed=npetrov VoiceLab установлен. Установка �
 
 [Files]
 Source: "..\dist\VoiceLab\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef IntegrateNeuralVoices
+Source: "..\dist\neural-models\*"; DestDir: "{app}\models"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: neuralvoices
+#endif
 
 [InstallDelete]
 ; Remove only the shortcuts created by older versions of this application.

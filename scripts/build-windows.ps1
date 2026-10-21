@@ -1,4 +1,4 @@
-param([string]$CompilerPath = "", [switch]$EnableVBCableIntegration)
+param([string]$CompilerPath = "", [switch]$EnableVBCableIntegration, [switch]$IncludeNeuralVoices)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -23,9 +23,13 @@ if (-not $CompilerPath -or -not (Test-Path $CompilerPath)) {
     throw "Install Inno Setup 6 or 7 (https://jrsoftware.org/isdl.php), then run Build-Windows.bat again."
 }
 
-& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile --collect-all onnxruntime scripts/desktop_entry.py
+& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile --collect-all onnxruntime --exclude-module torch --exclude-module torchvision --exclude-module torchaudio scripts/desktop_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
 $compilerOptions = @()
+if ($IncludeNeuralVoices) {
+    if (-not (Test-Path dist/neural-models/SOURCES.json)) { throw "Prepare and validate the offline neural voice pack first." }
+    $compilerOptions += "/DIntegrateNeuralVoices=1"
+}
 if ($EnableVBCableIntegration) {
     # Personal setup only; obtain the author's agreement before redistribution.
     Copy-Item installer/Install-VirtualMicrophone.ps1 dist/VoiceLab/Install-VirtualMicrophone.ps1

@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - 'scripts/inspect-neural-assets.py'
       - '.github/workflows/neural-models.yml'
+      - 'scripts/remote_zip.py'
   pull_request:
   workflow_dispatch:
 
@@ -16,8 +17,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
+      PYTHONUTF8: '1'
       QT_QPA_PLATFORM: offscreen
       VBCABLE_INTEGRATION_AUTHORIZED: ${{ vars.VBCABLE_INTEGRATION_AUTHORIZED }}
       # Owner's personal setup; disabled in public repositories and other forks.
@@ -38,9 +40,20 @@ jobs:
       - name: Validate VB-CABLE download and vendor signature
         shell: powershell
         run: ./installer/Install-VirtualMicrophone.ps1 -VerifyOnly
+      - name: Prepare offline Russian neural voices for the personal release
+        if: startsWith(github.ref, 'refs/tags/') && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+        shell: pwsh
+        env:
+          PYTHONPATH: ${{ github.workspace }}/src
+        run: |
+          python -m venv .neural-build
+          .neural-build/Scripts/python -m pip install --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu -r scripts/neural-build-requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Neural export dependency installation failed' }
+          .neural-build/Scripts/python scripts/prepare-neural-voices.py
+          if ($LASTEXITCODE -ne 0) { throw 'Neural model preparation failed' }
       - name: Build application and single EXE installer
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true')
+        run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true') -IncludeNeuralVoices:(Test-Path dist/neural-models/SOURCES.json)
       - name: Smoke test packaged DSP
         shell: pwsh
         run: |
@@ -52,7 +65,7 @@ jobs:
         shell: pwsh
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP 'VoiceLab-installed'
-          $installer = Start-Process -FilePath dist/installer/VoiceLab-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/TASKS=desktopicon', "/DIR=$installDir" -Wait -PassThru
+          $installer = Start-Process -FilePath dist/installer/VoiceLab-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/TASKS=desktopicon,neuralvoices', "/DIR=$installDir" -Wait -PassThru
           if ($installer.ExitCode -ne 0) { throw "Install failed: $($installer.ExitCode)" }
           $app = Join-Path $installDir 'VoiceLab.exe'
           if (-not (Test-Path $app)) { throw 'Installed application is missing' }
@@ -65,6 +78,10 @@ jobs:
           $render = Start-Process -FilePath $app -ArgumentList '--render', 'smoke-input.wav', 'installed-output.wav', '--preset', 'sakura' -Wait -PassThru
           if ($render.ExitCode -ne 0) { throw 'Installed application failed' }
           python -c "import numpy as np, soundfile as sf; a,r=sf.read('installed-output.wav'); assert r==48000 and len(a)==96000 and np.max(np.abs(a))>0.01"
+          if (Test-Path dist/neural-models/SOURCES.json) {
+            python scripts/smoke-neural-installer.py --app $app --models (Join-Path $installDir 'models')
+            if ($LASTEXITCODE -ne 0) { throw 'Installed neural voice processing failed' }
+          }
           $uninstall = Start-Process -FilePath (Join-Path $installDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
           if (Test-Path $app) { throw 'Application was not removed' }
@@ -72,11 +89,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceLab-Setup-Windows-x64
+          retention-days: 1
           path: dist/installer/VoiceLab-Setup.exe
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceLab-Setup-checksum
+          retention-days: 1
           path: dist/installer/VoiceLab-Setup.exe.sha256
           if-no-files-found: error
 

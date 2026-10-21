@@ -144,6 +144,8 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("dist/neural-models"))
     parser.add_argument("--only", type=int, default=len(VOICES))
     args = parser.parse_args()
+    if not 1 <= args.only <= len(VOICES):
+        parser.error("--only must be between 1 and 6")
     import torch
     torch.set_num_threads(2)
     from voicelab.models import COMMON, download
@@ -157,7 +159,7 @@ def main():
         temporary = Path(directory)
         exporter = prepare_exporter(temporary / "exporter")
         with HTTPRangeFile(SOURCE_URL, SOURCE_SIZE) as remote, zipfile.ZipFile(remote) as archive:
-            for name, member in VOICES[:args.only]:
+            for order, (name, member) in enumerate(VOICES[:args.only]):
                 print(f"Preparing Russian model: {name}", flush=True)
                 checkpoint = temporary / "voice.pth"
                 with archive.open(member) as incoming, checkpoint.open("wb") as outgoing:
@@ -167,7 +169,7 @@ def main():
                 identifier = original_hash[:24]
                 destination = root / "voices" / identifier
                 rate, channels = export_voice(checkpoint, destination, exporter)
-                manifest = {"id": identifier, "name": name, "model": f"voices/{identifier}/voice.enc.onnx",
+                manifest = {"id": identifier, "name": name, "priority": order, "model": f"voices/{identifier}/voice.enc.onnx",
                             "decoder": f"voices/{identifier}/voice.dec.onnx", "encoder": "common/" + COMMON[channels].filename,
                             "pitch": "common/" + COMMON["pitch"].filename, "sample_rate": rate, "channels": channels,
                             "credit": "Модель сообщества: daswer123/RVC-big-ru-voice-pack; " + name,
@@ -204,6 +206,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
     try:
         main()
     except Exception as exc:

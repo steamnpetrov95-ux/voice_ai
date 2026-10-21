@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import sys
 import tempfile
 from urllib.parse import quote, unquote, urlparse
 import urllib.request
@@ -119,9 +120,12 @@ def _contained(root, relative):
 
 
 def installed_voices():
-    root = voice_directory()
-    voices = []
-    for path in sorted(root.glob("voices/*/voice.json")):
+    builtin = (Path(sys.executable).resolve().parent / "models" if getattr(sys, "frozen", False)
+               else Path(__file__).resolve().parents[2] / "dist" / "neural-models")
+    voices = {}
+    priorities = {}
+    for path in sorted(builtin.glob("voices/*/voice.json")) + sorted(voice_directory().glob("voices/*/voice.json")):
+        root = path.parents[2]
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
             if (not isinstance(value, dict) or not isinstance(value.get("name"), str)
@@ -129,16 +133,17 @@ def installed_voices():
                     or value.get("sample_rate") not in (32000, 40000, 48000)
                     or value.get("channels") not in (256, 768)):
                 continue
-            voices.append(NeuralVoice(
+            voices[value["id"]] = NeuralVoice(
                 id=value["id"], name=value["name"], model=_contained(root, value["model"]),
                 encoder=_contained(root, value["encoder"]), pitch=_contained(root, value["pitch"]),
                 sample_rate=value["sample_rate"], channels=value["channels"],
                 credit=str(value.get("credit", "")), terms_url=str(value.get("terms_url", "")),
                 decoder=_contained(root, value["decoder"]) if value.get("decoder") else None,
-            ))
+            )
+            priorities[value["id"]] = value.get("priority", 100) if isinstance(value.get("priority", 100), int) else 100
         except (OSError, ValueError, KeyError, TypeError):
             continue
-    return voices
+    return sorted(voices.values(), key=lambda voice: (priorities[voice.id], voice.name))
 
 
 def install_voice(source, name, progress=lambda message, percent: None, cancel=None, credit="", terms_url=""):

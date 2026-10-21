@@ -124,7 +124,7 @@ def test_manifest_cannot_reference_files_outside_library(monkeypatch, tmp_path):
     directory.mkdir(parents=True)
     outside = tmp_path / "outside.onnx"
     outside.write_bytes(b"model")
-    (directory / "voice.json").write_text(json.dumps({"id": "bad", "name": "bad", "model": str(outside),
+    (directory / "voice.json").write_text(json.dumps({"id": "a" * 24, "name": "bad", "model": str(outside),
         "encoder": str(outside), "pitch": str(outside), "sample_rate": 40000, "channels": 768}))
     assert models.installed_voices() == []
 

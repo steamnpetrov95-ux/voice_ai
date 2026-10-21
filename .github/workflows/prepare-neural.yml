@@ -16,6 +16,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
+      PYTHONUTF8: '1'
       PYTHONPATH: ${{ github.workspace }}/src
       VOICE_COUNT: ${{ inputs.voice_count }}
     steps:
