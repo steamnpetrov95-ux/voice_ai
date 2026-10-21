@@ -1,9 +1,10 @@
 """PortAudio device I/O. DSP and file writing run outside real-time callbacks."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import queue
 import threading
+import time
 
 import numpy as np
 import sounddevice as sd
@@ -50,6 +51,13 @@ class AudioEngine:
         self.waveform = np.zeros(128, dtype=np.float32)
         self.dropouts = 0
         self.error = ""
+        self.neural_voice = None
+        self.neural_provider = "auto"
+        self.neural_buffer_ms = 320
+        self.loading = False
+        self.processing_ms = 0.0
+        self.provider_label = ""
+        self.block_size = BLOCK_SIZE
         self.recording_path: str | None = None
         self.recorded_frames = 0
         self._recording = None
@@ -69,13 +77,26 @@ class AudioEngine:
         # Frozen settings are replaced atomically. The worker owns all DSP objects.
         self.settings = settings
 
+    def configure_neural(self, voice=None, provider="auto", buffer_ms=320):
+        if self.running:
+            raise RuntimeError("Остановите микрофон перед сменой AI-голоса.")
+        if buffer_ms not in (160, 320, 480, 640):
+            raise ValueError("Неподдерживаемый размер буфера AI.")
+        self.neural_voice, self.neural_provider = voice, provider
+        self.neural_buffer_ms = buffer_ms
+
     def start(self, input_device: int, output_device: int | None = None):
         if self.running:
             return
+        if self._worker is not None and self._worker.is_alive():
+            raise RuntimeError("Дождитесь завершения предыдущей обработки AI и повторите запуск.")
+        self.loading = self.neural_voice is not None
+        self.processing_ms = 0.0
+        self.provider_label = ""
         self.error = ""
         self.dropouts = 0
-        self._in_queue = queue.Queue(maxsize=6)
-        self._out_queue = queue.Queue(maxsize=6)
+        self._in_queue = queue.Queue(maxsize=2 if self.neural_voice else 6)
+        self._out_queue = queue.Queue(maxsize=2 if self.neural_voice else 6)
         self._stop.clear()
         output_channels = min(2, sd.query_devices(output_device, "output")["max_output_channels"]) if output_device is not None else 0
         failures = []
@@ -85,6 +106,7 @@ class AudioEngine:
                 if output_device is not None:
                     sd.check_output_settings(device=output_device, channels=output_channels, dtype="float32", samplerate=rate)
                 self.sample_rate = rate
+                self.block_size = round(rate * self.neural_buffer_ms / 1000 / 128) * 128 if self.neural_voice else BLOCK_SIZE
                 break
             except (sd.PortAudioError, ValueError) as exc:
                 failures.append(str(exc))
@@ -93,10 +115,10 @@ class AudioEngine:
                                "Проверьте настройки звука Windows.\n" + "\n".join(failures))
         try:
             self._input = sd.InputStream(device=input_device, channels=1, samplerate=self.sample_rate,
-                                         blocksize=BLOCK_SIZE, latency="low", dtype="float32", callback=self._capture)
+                                         blocksize=self.block_size, latency="low", dtype="float32", callback=self._capture)
             if output_device is not None:
                 self._output = sd.OutputStream(device=output_device, channels=output_channels,
-                                               samplerate=self.sample_rate, blocksize=BLOCK_SIZE,
+                                               samplerate=self.sample_rate, blocksize=self.block_size,
                                                latency="low", dtype="float32", callback=self._play)
             self.running = True
             self._worker = threading.Thread(target=self._process, name="voicelab-dsp", daemon=True)
@@ -127,13 +149,13 @@ class AudioEngine:
                                  samplerate=self.sample_rate)
         # Each stream owns its queue: a slow headset cannot consume or block
         # audio destined for the virtual microphone. Old callbacks retain only their old queue.
-        pending = queue.Queue(maxsize=3)
+        pending = queue.Queue(maxsize=2 if self.neural_voice else 3)
 
         def play_monitor(outdata, frames, time_info, status):
             self._fill_output(pending, outdata, frames)
 
         stream = sd.OutputStream(device=device, channels=channels, samplerate=self.sample_rate,
-                                 blocksize=BLOCK_SIZE, latency="low", dtype="float32",
+                                 blocksize=self.block_size, latency="low", dtype="float32",
                                  callback=play_monitor)
         try:
             stream.start()
@@ -160,7 +182,7 @@ class AudioEngine:
     def _play(self, outdata, frames, time_info, status):
         if status:
             self.dropouts += 1
-        if not self._fill_output(self._out_queue, outdata, frames):
+        if not self._fill_output(self._out_queue, outdata, frames) and not self.loading:
             self.dropouts += 1
 
     @staticmethod
@@ -194,6 +216,18 @@ class AudioEngine:
         processor = None
         current = None
         try:
+            neural = None
+            if self.neural_voice:
+                from .neural import NeuralConverter
+                neural = NeuralConverter(self.neural_voice, self.sample_rate, self.neural_provider)
+                self.provider_label = neural.provider.replace("ExecutionProvider", "")
+                # Audio captured while loading a model must never replay later.
+                while not self._in_queue.empty():
+                    try:
+                        self._in_queue.get_nowait()
+                    except queue.Empty:
+                        break
+            self.loading = False
             while not self._stop.is_set():
                 try:
                     block = self._in_queue.get(timeout=0.1)
@@ -201,9 +235,16 @@ class AudioEngine:
                     continue
                 settings = self.settings
                 if settings != current:
-                    processor = VoiceProcessor(self.sample_rate, settings)
+                    processor = VoiceProcessor(self.sample_rate, replace(settings, pitch=0) if neural else settings)
                     current = settings
-                result = processor.process(block)
+                    if neural and not settings.enabled:
+                        neural.reset()
+                started = time.perf_counter()
+                converted = neural.process(block, settings.pitch) if neural and settings.enabled else block
+                result = processor.process(converted)
+                self.processing_ms = (time.perf_counter() - started) * 1000
+                if self._stop.is_set():
+                    break
                 self.input_level = float(np.max(np.abs(block))) if block.size else 0
                 self.output_level = float(np.max(np.abs(result))) if result.size else 0
                 if result.size:
@@ -222,11 +263,14 @@ class AudioEngine:
                 if monitor_queue is not None:
                     self._offer(monitor_queue, result, count_dropouts=False)
         except Exception as exc:
-            self.error = f"Обработка звука остановлена: {exc}"
+            if not self._stop.is_set():
+                self.error = f"Обработка звука остановлена: {exc}"
             self._stop.set()
+        finally:
+            self.loading = False
 
     def start_recording(self, path: str | Path):
-        if not self.running or self._stop.is_set():
+        if not self.running or self._stop.is_set() or self.loading:
             raise RuntimeError("Сначала включите микрофон.")
         with self._record_lock:
             if self._recording is not None:
@@ -276,6 +320,10 @@ class AudioEngine:
     def failed(self) -> bool:
         return self.running and self._stop.is_set()
 
+    @property
+    def busy(self) -> bool:
+        return self._worker is not None and self._worker.is_alive()
+
     def stop(self):
         self._stop.set()
         self.stop_monitoring()
@@ -291,8 +339,9 @@ class AudioEngine:
                 setattr(self, attr, None)
         # Workers use bounded waits; join before closing the recording file.
         if self._worker is not None:
-            self._worker.join()
-            self._worker = None
+            self._worker.join(timeout=0.5)
+            if not self._worker.is_alive():
+                self._worker = None
         self.stop_recording()
         self.running = False
         self.input_level = self.output_level = 0.0

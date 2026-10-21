@@ -1,0 +1,36 @@
+name: Validate offline neural voices
+
+on:
+  workflow_dispatch:
+    inputs:
+      voice_count:
+        description: 'Number of Russian models to prepare and validate (1–6)'
+        default: '1'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/src
+      VOICE_COUNT: ${{ inputs.voice_count }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: scripts/neural-build-requirements.lock
+      - name: Install isolated neural export dependencies
+        run: |
+          python -m venv .neural-build
+          .neural-build/Scripts/python -m pip install --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu -r scripts/neural-build-requirements.lock
+      - name: Extract, export, and test actual Russian neural voices
+        shell: pwsh
+        run: |
+          .neural-build/Scripts/python scripts/prepare-neural-voices.py --only $env:VOICE_COUNT
+          if ($LASTEXITCODE -ne 0) { throw 'Neural export validation failed' }

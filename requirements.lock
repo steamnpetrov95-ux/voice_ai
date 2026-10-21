@@ -54,6 +54,21 @@ colorama==0.4.6 ; sys_platform == 'win32' \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
     # via pytest
+coloredlogs==15.0.1 \
+    --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934 \
+    --hash=sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0
+    # via
+    #   onnxruntime
+    #   onnxruntime-directml
+flatbuffers==25.12.19 \
+    --hash=sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
+    # via
+    #   onnxruntime
+    #   onnxruntime-directml
+humanfriendly==10.0 \
+    --hash=sha256:1697e1a8a8f550fd43c2865cd84542fc175a61dcb779b6fee18cf6b6ccba1477 \
+    --hash=sha256:6b0b831ce8f15f7300721aa49829fc4e83921a9a301cc7f606be6686a2288ddc
+    # via coloredlogs
 iniconfig==2.3.1 \
     --hash=sha256:67f4b9c50da0dedf52af349e7749a80a9057a5031199791b906c3bb3ae878960 \
     --hash=sha256:9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7
@@ -62,6 +77,10 @@ macholib==1.16.4 ; sys_platform == 'darwin' \
     --hash=sha256:da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea \
     --hash=sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362
     # via pyinstaller
+mpmath==1.3.0 \
+    --hash=sha256:7a28eb2a9774d00c7bc92411c19a89209d5da7c4c9a9e227be8330a23a25b91f \
+    --hash=sha256:a0b2b9fe80bbcd81a6647ff13108738cfb482d481d826cc0e02f5b35e5c88d2c
+    # via sympy
 numpy==2.2.6 \
     --hash=sha256:038613e9fb8c72b0a41f025a7e4c3f0b7a1b5d768ece4796b674c8f3fe13efff \
     --hash=sha256:0678000bb9ac1475cd454c6b8c799206af8107e310843532b04d49649c717a47 \
@@ -105,13 +124,50 @@ numpy==2.2.6 \
     --hash=sha256:fe27749d33bb772c80dcd84ae7e8df2adc920ae8297400dabec45f0dedb3f6de \
     --hash=sha256:fee4236c876c4e8369388054d02d0e9bb84821feb1a64dd59e137e6511a551f8
     # via
+    #   onnx
+    #   onnxruntime
+    #   onnxruntime-directml
     #   pedalboard
+    #   scipy
     #   soundfile
     #   voicelab-desktop
+onnx==1.17.0 \
+    --hash=sha256:081ec43a8b950171767d99075b6b92553901fa429d4bc5eb3ad66b36ef5dbe3a \
+    --hash=sha256:0e906e6a83437de05f8139ea7eaf366bf287f44ae5cc44b2850a30e296421f2f \
+    --hash=sha256:317870fca3349d19325a4b7d1b5628f6de3811e9710b1e3665c68b073d0e68d7 \
+    --hash=sha256:3d955ba2939878a520a97614bcf2e79c1df71b29203e8ced478fa78c9a9c63c2 \
+    --hash=sha256:48ca1a91ff73c1d5e3ea2eef20ae5d0e709bb8a2355ed798ffc2169753013fd3 \
+    --hash=sha256:4a183c6178be001bf398260e5ac2c927dc43e7746e8638d6c05c20e321f8c949 \
+    --hash=sha256:4f3fb5cc4e2898ac5312a7dc03a65133dd2abf9a5e520e69afb880a7251ec97a \
+    --hash=sha256:659b8232d627a5460d74fd3c96947ae83db6d03f035ac633e20cd69cfa029227 \
+    --hash=sha256:95c03e38671785036bb704c30cd2e150825f6ab4763df3a4f1d249da48525957 \
+    --hash=sha256:d6fc3a03fc0129b8b6ac03f03bc894431ffd77c7d79ec023d0afd667b4d35869 \
+    --hash=sha256:f01a4b63d4e1d8ec3e2f069e7b798b2955810aa434f7361f01bc8ca08d69cce4
+    # via voicelab-desktop
+onnxruntime==1.20.1 ; sys_platform != 'win32' \
+    --hash=sha256:06bfbf02ca9ab5f28946e0f912a562a5f005301d0c419283dc57b3ed7969bb7b \
+    --hash=sha256:0df6f2df83d61f46e842dbcde610ede27218947c33e994545a22333491e72a3b \
+    --hash=sha256:22b0655e2bf4f2161d52706e31f517a0e54939dc393e92577df51808a7edc8c9 \
+    --hash=sha256:5eec64c0269dcdb8d9a9a53dc4d64f87b9e0c19801d9321246a53b7eb5a7d1bc \
+    --hash=sha256:bb71a814f66517a65628c9e4a2bb530a6edd2cd5d87ffa0af0f6f773a027d99e \
+    --hash=sha256:bda6aebdf7917c1d811f21d41633df00c58aff2bef2f598f69289c1f1dabc4b3 \
+    --hash=sha256:c9158465745423b2b5d97ed25aa7740c7d38d2993ee2e5c3bfacb0c4145c49d8 \
+    --hash=sha256:cc01437a32d0042b606f462245c8bbae269e5442797f6213e36ce61d5abdd8cc \
+    --hash=sha256:f1f56e898815963d6dc4ee1c35fc6c36506466eff6d16f3cb9848cea4e8c8172 \
+    --hash=sha256:f6243e34d74423bdd1edf0ae9596dd61023b260f546ee17d701723915f06a9f7 \
+    --hash=sha256:fb44b08e017a648924dbe91b82d89b0c105b1adcfe31e90d1dc06b8677ad37be
+    # via voicelab-desktop
+onnxruntime-directml==1.20.1 ; sys_platform == 'win32' \
+    --hash=sha256:4b9a9f8349d68eef947fc692b3572e7a6490cb95effb151ace1a6ffc15884940 \
+    --hash=sha256:86a8c4b69e377bb18ed2a18aaf2337baa83a57ff87a97224d027e546dfa99fde \
+    --hash=sha256:c7861057ad4caa64186c910efb3b54c1f575cd0e64732509c9bd927d2d20187b
+    # via voicelab-desktop
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
     # via
+    #   onnxruntime
+    #   onnxruntime-directml
     #   pyinstaller
     #   pyinstaller-hooks-contrib
     #   pytest
@@ -143,6 +199,19 @@ pluggy==1.7.0 \
     --hash=sha256:7dd7b0d8832ba3cb632c306926ded123429211b83641b35dc5c41ad2d34f9bec \
     --hash=sha256:d1eaa46ebb595891b860ab086b4d09c8588af65ebd4361b8e8f4bb8920b90ba8
     # via pytest
+protobuf==7.36.2 \
+    --hash=sha256:497d0463ff3316681da6c0b9e8d06cb465d61abce00b613ab42226175644d1bb \
+    --hash=sha256:89f23aa53c24553a2416fd4fd1ec06f74fa42b14b546d8883128813f775bbfd2 \
+    --hash=sha256:912c1221170e16c08d1f086762f563dd61ff83c18b5fa6652952dfaded66f728 \
+    --hash=sha256:a300819d441e078a5608c0d3c709796bb548136058fda017ae51d425b44fd353 \
+    --hash=sha256:bdb3a345d48db958e6ce1f18e508beb0cc981d64f24088427549c866cd039f1e \
+    --hash=sha256:cbc70b17ee27e28894c7fee8bb04be1abead49e936bc70eb60052531eee2079e \
+    --hash=sha256:e11e1f0180583a2af89db6a2ecd9e8dc40aa6d2988ca175bfd0e6d12ea72d74e \
+    --hash=sha256:f4fee11ec330d238b34a05c9b675f693c20415d1c5bd7d5320cc2f8a798eb9cf
+    # via
+    #   onnx
+    #   onnxruntime
+    #   onnxruntime-directml
 pycparser==3.11 ; implementation_name != 'PyPy' \
     --hash=sha256:51d5a8ba2be0bbe440b99d2112604c95bbbc3c2748a64260186c541e1729cd80 \
     --hash=sha256:d875f09c3507d00e1aba0eecc6dcadc1352f30fff09dc6bff2f1c2935e97c2bc
@@ -169,6 +238,10 @@ pyinstaller-hooks-contrib==2026.9 \
     --hash=sha256:2748767901acb5cecd1304652b6c7add5bffcff1d71d01207fe24a5d42942a56 \
     --hash=sha256:fb3e67dd64122561724c48ad0366ac9e8c16e638b63bf7d85de03bf3fdbf06c3
     # via pyinstaller
+pyreadline3==3.5.6 ; sys_platform == 'win32' \
+    --hash=sha256:61e53218b99656091ddb077df9e71f25850e72e030b6183b39c9b7e6e4f4a9bf \
+    --hash=sha256:8449b734232e42a5dcd74048e39b60db2839a4c38cf3ae2bf7707d58b5389c0d
+    # via humanfriendly
 pyside6-essentials==6.8.3 \
     --hash=sha256:3c0fae5550aff69f2166f46476c36e0ef56ce73d84829eac4559770b0c034b07 \
     --hash=sha256:aa56c135db924ecfaf50088baf32f737d28027419ca5fee67c0c7141b29184e3 \
@@ -183,6 +256,45 @@ pywin32-ctypes==0.2.3 ; sys_platform == 'win32' \
     --hash=sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8 \
     --hash=sha256:d162dc04946d704503b2edc4d55f3dba5c1d539ead017afa00142c38b9885755
     # via pyinstaller
+scipy==1.15.3 \
+    --hash=sha256:05dc6abcd105e1a29f95eada46d4a3f251743cfd7d3ae8ddb4088047f24ea477 \
+    --hash=sha256:06efcba926324df1696931a57a176c80848ccd67ce6ad020c810736bfd58eb1c \
+    --hash=sha256:0a769105537aa07a69468a0eefcd121be52006db61cdd8cac8a0e68980bbb723 \
+    --hash=sha256:0bdd905264c0c9cfa74a4772cdb2070171790381a5c4d312c973382fc6eaf730 \
+    --hash=sha256:0ff17c0bb1cb32952c09217d8d1eed9b53d1463e5f1dd6052c7857f83127d539 \
+    --hash=sha256:14ed70039d182f411ffc74789a16df3835e05dc469b898233a245cdfd7f162cb \
+    --hash=sha256:185cd3d6d05ca4b44a8f1595af87f9c372bb6acf9c808e99aa3e9aa03bd98cf6 \
+    --hash=sha256:18aaacb735ab38b38db42cb01f6b92a2d0d4b6aabefeb07f02849e47f8fb3594 \
+    --hash=sha256:271e3713e645149ea5ea3e97b57fdab61ce61333f97cfae392c28ba786f9bb49 \
+    --hash=sha256:2c620736bcc334782e24d173c0fdbb7590a0a436d2fdf39310a8902505008759 \
+    --hash=sha256:34716e281f181a02341ddeaad584205bd2fd3c242063bd3423d61ac259ca7eba \
+    --hash=sha256:39cb9c62e471b1bb3750066ecc3a3f3052b37751c7c3dfd0fd7e48900ed52982 \
+    --hash=sha256:3ac07623267feb3ae308487c260ac684b32ea35fd81e12845039952f558047b8 \
+    --hash=sha256:3b0334816afb8b91dab859281b1b9786934392aa3d527cd847e41bb6f45bee65 \
+    --hash=sha256:40e54d5c7e7ebf1aa596c374c49fa3135f04648a0caabcb66c52884b943f02b4 \
+    --hash=sha256:50f9e62461c95d933d5c5ef4a1f2ebf9a2b4e83b0db374cb3f1de104d935922e \
+    --hash=sha256:52092bc0472cfd17df49ff17e70624345efece4e1a12b23783a1ac59a1b728ed \
+    --hash=sha256:5e721fed53187e71d0ccf382b6bf977644c533e506c4d33c3fb24de89f5c3ed5 \
+    --hash=sha256:6487aa99c2a3d509a5227d9a5e889ff05830a06b2ce08ec30df6d79db5fcd5c5 \
+    --hash=sha256:6ac6310fdbfb7aa6612408bd2f07295bcbd3fda00d2d702178434751fe48e019 \
+    --hash=sha256:6cfd56fc1a8e53f6e89ba3a7a7251f7396412d655bca2aa5611c8ec9a6784a1e \
+    --hash=sha256:6db907c7368e3092e24919b5e31c76998b0ce1684d51a90943cb0ed1b4ffd6c1 \
+    --hash=sha256:721d6b4ef5dc82ca8968c25b111e307083d7ca9091bc38163fb89243e85e3889 \
+    --hash=sha256:76ad1fb5f8752eabf0fa02e4cc0336b4e8f021e2d5f061ed37d6d264db35e3ca \
+    --hash=sha256:79167bba085c31f38603e11a267d862957cbb3ce018d8b38f79ac043bc92d825 \
+    --hash=sha256:795c46999bae845966368a3c013e0e00947932d68e235702b5c3f6ea799aa8c9 \
+    --hash=sha256:7e11270a000969409d37ed399585ee530b9ef6aa99d50c019de4cb01e8e54e62 \
+    --hash=sha256:8c9ed3ba2c8a2ce098163a9bdb26f891746d02136995df25227a20e71c396ebb \
+    --hash=sha256:993439ce220d25e3696d1b23b233dd010169b62f6456488567e830654ee37a6b \
+    --hash=sha256:9db984639887e3dffb3928d118145ffe40eff2fa40cb241a306ec57c219ebbbb \
+    --hash=sha256:ae48a786a28412d744c62fd7816a4118ef97e5be0bee968ce8f0a2fba7acf3bb \
+    --hash=sha256:b90ab29d0c37ec9bf55424c064312930ca5f4bde15ee8619ee44e69319aab163 \
+    --hash=sha256:c05045d8b9bfd807ee1b9f38761993297b10b245f012b11b13b91ba8945f7e45 \
+    --hash=sha256:c9deabd6d547aee2c9a81dee6cc96c6d7e9a9b1953f74850c179f91fdc729cb7 \
+    --hash=sha256:dde4fc32993071ac0c7dd2d82569e544f0bdaff66269cb475e0f369adad13f11 \
+    --hash=sha256:eae3cf522bc7df64b42cad3925c876e1b0b6c35c1337c93e12c0f366f55b0eaf \
+    --hash=sha256:f77f853d584e72e874d87357ad70f44b437331507d1c311457bed8ed2b956126
+    # via voicelab-desktop
 setuptools==84.2.1 \
     --hash=sha256:3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc \
     --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2
@@ -211,3 +323,9 @@ soundfile==0.13.1 \
     --hash=sha256:b2c68dab1e30297317080a5b43df57e302584c49e2942defdde0acccc53f0e5b \
     --hash=sha256:c734564fab7c5ddf8e9be5bf70bab68042cd17e9c214c06e365e20d64f9a69d5
     # via voicelab-desktop
+sympy==1.14.0 \
+    --hash=sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517 \
+    --hash=sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5
+    # via
+    #   onnxruntime
+    #   onnxruntime-directml

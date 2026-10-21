@@ -16,6 +16,7 @@ from .audio import AudioEngine, list_devices
 from . import APP_NAME, __version__
 from .avatars import avatar_icon
 from .effects import render_file
+from .neural_ui import NeuralPanel
 from .presets import CATEGORIES, PRESETS, PRESET_BY_ID
 from .routing import is_virtual_input, is_virtual_output
 from .settings import load_preferences, save_preferences
@@ -124,14 +125,15 @@ class RenderWorker(QObject):
     finished = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, source, destination, settings):
+    def __init__(self, source, destination, settings, voice=None, provider="auto"):
         super().__init__()
         self.source, self.destination, self.settings = source, destination, settings
+        self.voice, self.provider = voice, provider
 
     @Slot()
     def run(self):
         try:
-            render_file(self.source, self.destination, self.settings)
+            render_file(self.source, self.destination, self.settings, self.voice, self.provider)
             self.finished.emit(self.destination)
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -145,7 +147,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 760)
         self.engine = AudioEngine()
         self.preferences = load_preferences()
+        self.ai = NeuralPanel(self.preferences)
+        self.ai_buttons = {}
+        self._previous_ai_active = self.ai.active
         self.selected = PRESET_BY_ID.get(self.preferences.get("preset"), PRESETS[0])
+        if self.ai.active and self.preferences.get("voice_mode") != "ai":
+            self.selected = PRESETS[0]
         self._render_thread = None
         self._last_error = ""
         root = QWidget()
@@ -194,8 +201,13 @@ class MainWindow(QMainWindow):
         monitor_layout.addWidget(self.signal_hint)
         left.addWidget(monitor)
 
+        voice_mode_row = QHBoxLayout()
+        voice_mode_row.addWidget(self.ai.mode, 1)
+        voice_mode_row.addWidget(self.ai.add_button)
+        left.addLayout(voice_mode_row)
         presets_header = QHBoxLayout()
-        presets_header.addWidget(label("Коллекция голосов", "section"))
+        self.catalog_title = label("Коллекция голосов", "section")
+        presets_header.addWidget(self.catalog_title)
         presets_header.addStretch()
         self.voice_count = label(f"{len(PRESETS)} ГОЛОСОВ", "small")
         presets_header.addWidget(self.voice_count)
@@ -245,6 +257,9 @@ class MainWindow(QMainWindow):
 
         right = QVBoxLayout()
         right.setSpacing(18)
+        ai_panel, ai_layout = panel()
+        ai_layout.addWidget(label("Замена голоса", "section"))
+        ai_layout.addWidget(self.ai)
         devices_panel, devices_layout = panel()
         devices_layout.addWidget(label("Аудиоустройства", "section"))
         devices_layout.addWidget(label("КУДА ПЕРЕДАВАТЬ ГОЛОС", "small"))
@@ -289,6 +304,7 @@ class MainWindow(QMainWindow):
         self.device_note = label("", "small", True)
         devices_layout.addWidget(self.device_note)
         right.addWidget(devices_panel)
+        right.addWidget(ai_panel)
 
         effect_panel, effect_layout = panel()
         effect_layout.addWidget(label("Настрой свой звук", "section"))
@@ -344,7 +360,10 @@ class MainWindow(QMainWindow):
         transport_row.addLayout(levels, 1)
         transport_row.addWidget(self.record_button, 1)
         transport_layout.addLayout(transport_row)
-        transport_layout.addWidget(self.record_label)
+        transport_footer = QHBoxLayout()
+        transport_footer.addWidget(self.record_label, 1)
+        transport_footer.addWidget(self.monitor_check)
+        transport_layout.addLayout(transport_footer)
         outer.addWidget(transport)
         footer = QHBoxLayout()
         footer.addWidget(label("●  Обработка на устройстве · Без аккаунта и облака", "small"))
@@ -354,7 +373,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(root)
         self.select_preset(self.selected)
         tuning = self.preferences.get("tuning")
-        if isinstance(tuning, dict):
+        if isinstance(tuning, dict) and (not self.ai.active or self.preferences.get("voice_mode") == "ai"):
             for key, slider in (("pitch", self.pitch_slider), ("timbre", self.timbre_slider),
                                 ("clarity", self.clarity_slider), ("room", self.room_slider),
                                 ("gain", self.gain_slider)):
@@ -363,6 +382,8 @@ class MainWindow(QMainWindow):
                     slider.setValue(round(value))
             self.russian_speech.setChecked(bool(tuning.get("russian_speech", True)))
         self.refresh_devices()
+        self.ai.changed.connect(self.ai_changed)
+        self.ai_changed()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
         self.timer.start(50)
@@ -371,6 +392,42 @@ class MainWindow(QMainWindow):
         query = self.search.text().strip().casefold()
         category = self.category_combo.currentText()
         visible = 0
+        self.category_combo.setEnabled(not self.ai.active)
+        self.category_combo.setVisible(not self.ai.active)
+        for button in self.ai_buttons.values():
+            self.preset_grid.removeWidget(button)
+            button.hide()
+        if self.ai.active:
+            self.catalog_title.setText("Нейросетевые голоса")
+            for button in self.preset_buttons.values():
+                self.preset_grid.removeWidget(button)
+                button.hide()
+            for voice in self.ai.voices:
+                button = self.ai_buttons.get(voice.id)
+                if button is None:
+                    button = QToolButton()
+                    button.setObjectName("preset")
+                    button.setCheckable(True)
+                    button.setIcon(avatar_icon(voice.id, "Игровые"))
+                    button.setIconSize(QSize(88, 88))
+                    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+                    button.setMinimumHeight(140)
+                    button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                    button.clicked.connect(lambda checked=False, key=voice.id: self.ai.voice_combo.setCurrentIndex(self.ai.voice_combo.findData(key)))
+                    self.ai_buttons[voice.id] = button
+                button.setText(voice.name.split(" — ")[0])
+                button.setToolTip(f"Нейросетевая модель: {voice.name}\n{voice.credit}")
+                button.setChecked(self.ai.voice is not None and voice.id == self.ai.voice.id)
+                matches = query in voice.name.casefold()
+                button.setVisible(matches)
+                if matches:
+                    self.preset_grid.addWidget(button, visible // 4, visible % 4)
+                    visible += 1
+            self.voice_count.setText(f"{visible} AI-ГОЛОСОВ")
+            self.empty_label.setText("Добавьте модель AI-голоса кнопкой справа." if not self.ai.voices else "Голоса не найдены.")
+            self.empty_label.setVisible(visible == 0)
+            return
+        self.catalog_title.setText("Эффекты голоса")
         for preset in PRESETS:
             button = self.preset_buttons[preset.id]
             self.preset_grid.removeWidget(button)
@@ -381,8 +438,22 @@ class MainWindow(QMainWindow):
             if matches:
                 self.preset_grid.addWidget(button, visible // 4, visible % 4)
                 visible += 1
-        self.voice_count.setText(f"{visible} / {len(PRESETS)} ГОЛОСОВ")
+        self.voice_count.setText(f"{visible} / {len(PRESETS)} ЭФФЕКТОВ")
+        self.empty_label.setText("Эффекты не найдены. Попробуйте другой запрос.")
         self.empty_label.setVisible(visible == 0)
+
+    def ai_changed(self):
+        if self.ai.active and not self._previous_ai_active:
+            self.select_preset(PRESETS[0])
+        self._previous_ai_active = self.ai.active
+        self.filter_presets()
+        if self.ai.active:
+            self.description.setText(f"AI: {self.ai.voice.name}. Голос преобразуется локальной нейросетью."
+                                     if self.ai.voice else "Для естественной замены нужна обученная модель голоса.")
+        else:
+            self.description.setText(self.selected.description)
+        if not self.engine.running:
+            self.start_button.setEnabled(self.ai.ready and self.input_combo.currentData() is not None and self.output_combo.currentData() is not None)
 
     def make_slider(self, layout, title, low, high, suffix):
         row = QHBoxLayout()
@@ -452,7 +523,7 @@ class MainWindow(QMainWindow):
                 if selected >= 0:
                     combo.setCurrentIndex(selected)
             ready = bool(inputs and outputs)
-            self.start_button.setEnabled(ready)
+            self.start_button.setEnabled(ready and self.ai.ready)
             self.install_cable_button.setVisible(virtual_mode and not outputs)
             if virtual_mode:
                 self.route_hint.setText("Микрофон → эффекты → VB-CABLE. В нужном приложении выберите вход CABLE Output.")
@@ -501,7 +572,12 @@ class MainWindow(QMainWindow):
             return
         if self.input_combo.currentData() is None or self.output_combo.currentData() is None:
             return
+        if not self.ai.ready:
+            QMessageBox.information(self, "AI-голос", "Сначала добавьте и выберите нейросетевую модель голоса.")
+            return
         try:
+            self.engine.configure_neural(self.ai.voice if self.ai.active else None,
+                                         self.ai.provider.currentData(), self.ai.buffer.currentData())
             output = self.output_combo.currentData() if self.routing_combo.currentData() == "virtual" else None
             self.engine.start(self.input_combo.currentData(), output)
             self._last_error = ""
@@ -513,6 +589,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Не удалось включить микрофон", str(exc))
 
     def set_running(self, running):
+        self.ai.set_running(running)
+        for button in self.ai_buttons.values():
+            button.setEnabled(not running)
         self.update_monitor_controls()
         self.routing_combo.setEnabled(not running)
         self.input_combo.setEnabled(not running)
@@ -545,6 +624,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Не удалось начать запись", str(exc))
 
     def render_audio(self):
+        if not self.ai.ready:
+            QMessageBox.information(self, "AI-голос", "Сначала добавьте и выберите модель голоса либо включите режим эффектов.")
+            return
+        if self.engine.running and self.ai.active:
+            QMessageBox.information(self, "Обработка файла", "Остановите микрофон перед обработкой файла AI, чтобы освободить видеопамять.")
+            return
+        if self.engine.busy and not self.engine.running:
+            QMessageBox.information(self, "Обработка файла", "Дождитесь завершения предыдущей обработки AI.")
+            return
         source, _ = QFileDialog.getOpenFileName(self, "Открыть аудио", "", "Аудиофайлы (*.wav *.flac *.ogg *.mp3);;Все файлы (*)")
         if not source:
             return
@@ -555,8 +643,12 @@ class MainWindow(QMainWindow):
             destination += ".wav"
         self.render_button.setEnabled(False)
         self.render_button.setText("Обработка…")
+        if self.ai.active:
+            self.ai.set_running(True)
+            self.start_button.setEnabled(False)
         thread = QThread(self)
-        worker = RenderWorker(source, destination, self.engine.settings)
+        worker = RenderWorker(source, destination, self.engine.settings,
+                              self.ai.voice if self.ai.active else None, self.ai.provider.currentData())
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self.render_finished)
@@ -583,9 +675,20 @@ class MainWindow(QMainWindow):
         self._render_thread = self._render_worker = None
         self.render_button.setEnabled(True)
         self.render_button.setText("Обработать файл…")
+        if not self.engine.running:
+            self.ai.set_running(False)
+            self.ai_changed()
 
     def tick(self):
         self.engine.check_health()
+        if self.engine.running:
+            self.record_button.setEnabled(not self.engine.loading)
+            if self.engine.loading:
+                self.status.setText("●  Загрузка AI-модели…")
+            elif self.engine.neural_voice:
+                self.status.setText(f"●  AI: {self.engine.neural_voice.name.split(' — ')[0]}")
+                duration = self.engine.block_size * 1000 / self.engine.sample_rate
+                self.rate_label.setText(f"{self.engine.provider_label} · обработка {self.engine.processing_ms:.0f} мс / блок {duration:.0f} мс")
         if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
             self.monitor_check.setChecked(False)
         if self.engine.monitor_error:
@@ -598,7 +701,12 @@ class MainWindow(QMainWindow):
         self.waveform.samples = samples
         self.waveform.update()
         if self.engine.running:
-            self.signal_hint.setText(f"Потери аудиобуфера: {self.engine.dropouts}. При росте счётчика закройте тяжёлые приложения.")
+            if self.engine.loading:
+                self.signal_hint.setText("Загрузка нейросетей. Звук начнёт передаваться после подготовки модели.")
+            elif self.engine.neural_voice and self.engine.processing_ms > self.engine.block_size * 1000 / self.engine.sample_rate:
+                self.signal_hint.setText("AI не успевает за речью. Остановите микрофон и увеличьте буфер AI или выберите видеокарту.")
+            else:
+                self.signal_hint.setText(f"Потери аудиобуфера: {self.engine.dropouts}. При росте счётчика закройте тяжёлые приложения.")
         else:
             self.signal_hint.setText("Наденьте наушники перед включением прослушивания.")
         if self.engine.recording_path:
@@ -641,6 +749,10 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl("https://vb-audio.com/Cable/"))
 
     def closeEvent(self, event: QCloseEvent):
+        if self.ai.dialog is not None and self.ai.dialog.thread is not None:
+            self.ai.dialog.reject()
+            event.ignore()
+            return
         if self._render_thread is not None:
             QMessageBox.information(self, "Обработка файла", "Дождитесь завершения обработки перед выходом.")
             event.ignore()
@@ -648,7 +760,7 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.engine.stop()
         try:
-            save_preferences({"preset": self.selected.id, "input": self.input_combo.currentText(),
+            save_preferences({**self.ai.settings(), "preset": self.selected.id, "input": self.input_combo.currentText(),
                               "output": self.output_combo.currentText(),
                               "routing": self.routing_combo.currentData(),
                               "monitor_output": self.monitor_combo.currentText(),

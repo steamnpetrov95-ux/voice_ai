@@ -1,0 +1,7 @@
+# Isolated Windows build-time environment; never shipped in the desktop app.
+torch==2.6.0+cpu
+numpy==2.2.6
+scipy==1.15.3
+onnx==1.17.0
+onnxruntime==1.20.1
+soundfile==0.13.1

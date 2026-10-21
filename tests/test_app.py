@@ -22,6 +22,7 @@ def window(qt_app, monkeypatch, tmp_path):
     monkeypatch.setenv("VOICELAB_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(ui, "list_devices", lambda: ([], []))
     window = ui.MainWindow()
+    window.ai.mode.setCurrentIndex(1)
     window.show()
     qt_app.processEvents()
     yield window
@@ -190,3 +191,30 @@ def test_controls_update_audio_settings_and_russian_profile(window):
     assert not window.clarity_slider.isEnabled()
     window.bypass.setChecked(True)
     assert not window.engine.settings.enabled
+
+
+def test_ai_mode_does_not_present_effects_as_neural_voices(window):
+    window.ai.mode.setCurrentIndex(0)
+    assert window.ai.active and not window.ai.ready
+    assert not window.start_button.isEnabled()
+    assert all(button.isHidden() for button in window.preset_buttons.values())
+    assert not window.ai_buttons
+    assert window.empty_label.isVisible()
+    assert "AI" in window.voice_count.text()
+
+
+def test_installed_ai_voices_are_selectable_and_persisted(window, monkeypatch, tmp_path):
+    from voicelab import neural_ui
+    from voicelab.neural import NeuralVoice
+    voices = [NeuralVoice(str(i), name, tmp_path / "voice.onnx", tmp_path / "vec.onnx", tmp_path / "pitch.onnx", 40000, 768)
+              for i, name in enumerate(("Голос один", "Голос два"))]
+    monkeypatch.setattr(neural_ui, "installed_voices", lambda: voices)
+    window.ai.reload()
+    window.ai.mode.setCurrentIndex(0)
+    assert len(window.ai_buttons) == 2
+    assert window.ai.voice.name == "Голос один"
+    window.ai_buttons["1"].click()
+    assert window.ai.voice.name == "Голос два"
+    assert window.ai.settings()["ai_voice"] == "1"
+    window.search.setText("два")
+    assert window.ai_buttons["0"].isHidden() and not window.ai_buttons["1"].isHidden()

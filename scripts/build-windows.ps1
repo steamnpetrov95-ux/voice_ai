@@ -23,7 +23,7 @@ if (-not $CompilerPath -or -not (Test-Path $CompilerPath)) {
     throw "Install Inno Setup 6 or 7 (https://jrsoftware.org/isdl.php), then run Build-Windows.bat again."
 }
 
-& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile scripts/desktop_entry.py
+& $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile --collect-all onnxruntime scripts/desktop_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
 $compilerOptions = @()
 if ($EnableVBCableIntegration) {

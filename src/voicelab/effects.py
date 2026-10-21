@@ -1,6 +1,7 @@
 """Stateful DSP shared by the live engine and offline rendering."""
 
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -68,24 +69,34 @@ class VoiceProcessor:
         return np.clip(np.nan_to_num(audio), -1, 1).astype(np.float32, copy=False)
 
 
-def render_file(source: str | Path, destination: str | Path, settings: VoiceSettings) -> dict:
+def render_file(source: str | Path, destination: str | Path, settings: VoiceSettings, voice=None, provider="auto") -> dict:
     """Render WAV/FLAC/etc. as mono WAV. Existing files are never overwritten."""
     source, destination = Path(source), Path(destination)
     if source.resolve() == destination.resolve():
         raise ValueError("Входной и выходной файлы должны отличаться.")
     # Exclusive creation also protects against a destination appearing after selection.
     with sf.SoundFile(source) as incoming:
-        processor = VoiceProcessor(incoming.samplerate, settings)
+        neural = None
+        block_size = BLOCK_SIZE
+        if voice is not None and settings.enabled:
+            from .neural import AI_BLOCK_SIZE, NeuralConverter
+            neural = NeuralConverter(voice, incoming.samplerate, provider)
+            block_size = AI_BLOCK_SIZE
+        processor = VoiceProcessor(incoming.samplerate, replace(settings, pitch=0) if neural else settings)
         with destination.open("xb") as handle:
             with sf.SoundFile(handle, mode="w", samplerate=incoming.samplerate,
                               channels=1, format="WAV", subtype="PCM_16") as outgoing:
                 frames = 0
-                for block in incoming.blocks(blocksize=BLOCK_SIZE, dtype="float32", always_2d=True):
-                    result = processor.process(block.mean(axis=1))
+                for block in incoming.blocks(blocksize=block_size, dtype="float32", always_2d=True):
+                    mono = block.mean(axis=1)
+                    if neural:
+                        converted = neural.process(np.pad(mono, (0, block_size - len(mono))), settings.pitch)
+                        mono = converted[:len(mono)]
+                    result = processor.process(mono)
                     outgoing.write(result)
                     frames += len(result)
                 # Keep the effect's buffered audio and reverb tail for processed presets.
-                tail_frames = incoming.samplerate if settings.enabled and (len(processor.board) or settings.pitch) else 0
+                tail_frames = incoming.samplerate if settings.enabled and (len(processor.board) or settings.pitch) and not neural else 0
                 for offset in range(0, tail_frames, BLOCK_SIZE):
                     outgoing.write(processor.process(np.zeros(min(BLOCK_SIZE, tail_frames - offset), dtype=np.float32)))
     return {"frames": frames + tail_frames, "sample_rate": incoming.samplerate, "channels": 1}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voicelab-desktop"
-version = "0.1.2"
+version = "0.2.0"
 description = "Local voice effects and microphone routing for Windows"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -13,10 +13,13 @@ dependencies = [
   "pedalboard>=0.9.17,<0.10",
   "sounddevice>=0.5,<0.6",
   "soundfile>=0.13,<0.14",
+  "scipy==1.15.3",
+  "onnxruntime-directml==1.20.1; sys_platform == 'win32'",
+  "onnxruntime==1.20.1; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8,<10", "pyinstaller>=6,<7"]
+dev = ["pytest>=8,<10", "pyinstaller>=6,<7", "onnx==1.17.0"]
 
 [project.scripts]
 voicelab = "voicelab.__main__:main"

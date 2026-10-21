@@ -242,3 +242,71 @@ def test_standalone_monitor_needs_no_virtual_output_and_remains_bounded(devices)
         assert engine._monitor_queue.empty()
     finally:
         engine.stop()
+
+
+def test_neural_voice_is_processed_once_and_sent_to_both_outputs(devices, monkeypatch):
+    from types import SimpleNamespace
+    from voicelab import neural
+
+    instances = []
+
+    class Converter:
+        provider = "CPUExecutionProvider"
+
+        def __init__(self, voice, rate, provider):
+            instances.append(self)
+
+        def process(self, samples, pitch):
+            assert pitch == 12
+            return samples * 0.5
+
+        def reset(self):
+            pass
+
+    monkeypatch.setattr(neural, "NeuralConverter", Converter)
+    engine = audio.AudioEngine()
+    engine.configure_neural(SimpleNamespace(name="Test AI"), "cpu", 160)
+    engine.configure(VoiceSettings(pitch=12, gain=-6, clarity=0))
+    engine.start(0, 1)
+    try:
+        deadline = time.monotonic() + 3
+        while engine.loading and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert not engine.loading
+        assert engine.block_size == 7680
+        engine.start_monitoring(2)
+        assert engine._monitor.kwargs["blocksize"] == 7680
+        for gain in (-6, 0):
+            engine.configure(VoiceSettings(pitch=12, gain=gain, clarity=0))
+            engine._capture(np.full((7680, 1), 0.2, np.float32), 7680, None, False)
+            wait_for_audio(engine)
+            primary, monitor = np.zeros((7680, 2), np.float32), np.zeros((7680, 2), np.float32)
+            engine._play(primary, 7680, None, False)
+            engine._monitor.kwargs["callback"](monitor, 7680, None, False)
+            np.testing.assert_allclose(primary, 0.1 * 10 ** (gain / 20), atol=1e-5)
+            np.testing.assert_array_equal(monitor, primary)
+        assert len(instances) == 1
+    finally:
+        engine.stop()
+
+
+def test_failed_neural_load_never_outputs_original_microphone(devices, monkeypatch):
+    from types import SimpleNamespace
+    from voicelab import neural
+
+    def fail(*args):
+        raise RuntimeError("AI model unavailable")
+
+    monkeypatch.setattr(neural, "NeuralConverter", fail)
+    engine = audio.AudioEngine()
+    engine.configure_neural(SimpleNamespace(name="Test AI"), "cpu")
+    engine.start(0, 1)
+    try:
+        engine._capture(np.ones((15360, 1), np.float32) * 0.2, 15360, None, False)
+        deadline = time.monotonic() + 3
+        while not engine.failed and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert engine.failed and "AI model unavailable" in engine.error
+        assert engine._out_queue.empty()
+    finally:
+        engine.stop()
