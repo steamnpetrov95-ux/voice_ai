@@ -17,6 +17,13 @@ def notice(title, value):
 
 
 sources = json.loads(os.environ.get("MODEL_SOURCES", "[]") or "[]")
+queries = json.loads(os.environ.get("MODEL_SEARCHES", "[]") or "[]")
+if queries:
+    for query in queries[:8]:
+        found = read_json(f"https://huggingface.co/api/models?search={quote(query)}&limit=60")
+        notice("Search " + query, [item["id"] for item in found if "dialogpt" not in item["id"].lower()
+                                   and not set(item.get("tags", [])) & {"text-to-image", "text-generation"}])
+    raise SystemExit(0)
 if sources:
     for repository in sources[:8]:
         info = read_json(f"https://huggingface.co/api/models/{repository}?blobs=true")

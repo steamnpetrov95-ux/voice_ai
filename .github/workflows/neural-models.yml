@@ -7,6 +7,10 @@ on:
         description: 'JSON array of Hugging Face repositories to inspect'
         default: '[]'
         required: false
+      searches:
+        description: 'JSON array of model search terms'
+        default: '[]'
+        required: false
 
 permissions:
   contents: read
@@ -23,4 +27,5 @@ jobs:
       - name: Inspect public model schemas and source hashes
         env:
           MODEL_SOURCES: ${{ inputs.sources }}
+          MODEL_SEARCHES: ${{ inputs.searches }}
         run: python scripts/inspect-neural-assets.py
