@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         left = QVBoxLayout()
         left.setSpacing(12)
         left.addWidget(label("Твой голос. Твои правила.", "hero"))
-        left.addWidget(label("Эффекты в реальном времени для общения, игр и стримов.", "muted", True))
+        left.addWidget(label("Нейросетевые голоса и эффекты для общения, игр и стримов.", "muted", True))
 
         monitor, monitor_layout = panel("monitor")
         monitor_layout.setContentsMargins(18, 14, 18, 14)
@@ -724,6 +724,9 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "Как пользоваться", (
+            "Выберите режим «AI — замена голоса нейросетью» и карточку голоса. "
+            "Дождитесь загрузки модели после включения микрофона. "
+            "Если звук прерывается, остановите микрофон и увеличьте буфер AI в настройках справа.\n\n"
             f"1. В {APP_NAME} выберите режим «Виртуальный микрофон» и ваш физический микрофон.\n\n"
             "2. Если виртуального выхода нет, нажмите «Установить виртуальный микрофон». "
             "В официальном установщике VB-CABLE нажмите Install Driver и перезагрузите Windows, если потребуется.\n\n"
