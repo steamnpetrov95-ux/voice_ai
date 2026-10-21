@@ -1,7 +1,7 @@
 ﻿; Compile after PyInstaller has created dist\VoiceLab.
 ; One downloadable installer; Python and Qt are included in the application.
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 
 [Setup]
@@ -35,7 +35,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+#ifdef IntegrateVBCable
 Name: "virtualmic"; Description: "{cm:InstallVirtualMic}"; GroupDescription: "{cm:AdditionalIcons}"
+#endif
 
 [CustomMessages]
 english.InstallVirtualMic=Install the VB-CABLE virtual microphone (Internet and administrator permission required)
@@ -69,6 +71,7 @@ var
   ResultCode: Integer;
   Parameters: String;
 begin
+#ifdef IntegrateVBCable
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('virtualmic') then
   begin
     WizardForm.StatusLabel.Caption := CustomMessage('InstallingVirtualMic');
@@ -85,6 +88,7 @@ begin
     else
       MsgBox(CustomMessage('DriverFailed'), mbInformation, MB_OK);
   end;
+#endif
 end;
 
 function NeedRestart: Boolean;

@@ -40,8 +40,8 @@ try {
     $vendorInstaller = $installers[0].FullName
     $signature = Get-AuthenticodeSignature -LiteralPath $vendorInstaller
     if ($signature.Status -ne 'Valid' -or
-        $signature.SignerCertificate.Subject -notmatch '(?i)(VB[- ]?AUDIO|VINCENT\s+BUREL|V\.\s*BUREL)') {
-        throw "The VB-CABLE publisher signature could not be verified. Nothing was executed. Download the driver from https://vb-audio.com/Cable/ or retry when certificate validation is available."
+        $signature.SignerCertificate.Subject -notmatch '(?i)(VB[- ]?AUDIO|VINCENT\s+BUREL|BUREL\s+VINCENT|V\.\s*BUREL)') {
+        throw "The VB-CABLE publisher signature could not be verified ($($signature.Status)): $($signature.StatusMessage). Nothing was executed."
     }
     if ($VerifyOnly) {
         Write-Host "Official VB-CABLE download and publisher signature verified. No driver was installed."
@@ -61,6 +61,10 @@ try {
     Write-Host "Restart Windows, then check the virtual microphone in VoiceLab."
     exit 3010
 } catch {
+    if ($env:GITHUB_ACTIONS -eq 'true') {
+        $message = $_.Exception.Message.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+        Write-Host "::error title=VB-CABLE verification::$message"
+    }
     Write-Host "Virtual microphone setup could not complete: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "VoiceLab stays installed. Retry virtual microphone setup from the app."
     if (-not $VerifyOnly) { Read-Host "Press Enter to close" }

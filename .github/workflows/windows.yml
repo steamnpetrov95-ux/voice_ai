@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 20
     env:
       QT_QPA_PLATFORM: offscreen
+      VBCABLE_INTEGRATION_AUTHORIZED: ${{ vars.VBCABLE_INTEGRATION_AUTHORIZED }}
+      # Owner's personal setup; disabled in public repositories and other forks.
+      VBCABLE_PERSONAL_SETUP: ${{ github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +37,7 @@ jobs:
         run: ./installer/Install-VirtualMicrophone.ps1 -VerifyOnly
       - name: Build application and single EXE installer
         shell: pwsh
-        run: ./scripts/build-windows.ps1
+        run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true')
       - name: Smoke test packaged DSP
         shell: pwsh
         run: |
@@ -50,7 +53,9 @@ jobs:
           if ($installer.ExitCode -ne 0) { throw "Install failed: $($installer.ExitCode)" }
           $app = Join-Path $installDir 'VoiceLab.exe'
           if (-not (Test-Path $app)) { throw 'Installed application is missing' }
-          if (-not (Test-Path (Join-Path $installDir 'Install-VirtualMicrophone.ps1'))) { throw 'Virtual microphone setup is missing' }
+          $helperPresent = Test-Path (Join-Path $installDir 'Install-VirtualMicrophone.ps1')
+          $integrationEnabled = $env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true'
+          if ($helperPresent -ne $integrationEnabled) { throw 'Virtual microphone integration does not match the selected build' }
           $render = Start-Process -FilePath $app -ArgumentList '--render', 'smoke-input.wav', 'installed-output.wav', '--preset', 'sakura' -Wait -PassThru
           if ($render.ExitCode -ne 0) { throw 'Installed application failed' }
           python -c "import numpy as np, soundfile as sf; a,r=sf.read('installed-output.wav'); assert r==48000 and len(a)==96000 and np.max(np.abs(a))>0.01"

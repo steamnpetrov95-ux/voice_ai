@@ -1,4 +1,4 @@
-param([string]$CompilerPath = "")
+param([string]$CompilerPath = "", [switch]$EnableVBCableIntegration)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -25,10 +25,15 @@ if (-not $CompilerPath -or -not (Test-Path $CompilerPath)) {
 
 & $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile scripts/desktop_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
-Copy-Item installer/Install-VirtualMicrophone.ps1 dist/VoiceLab/Install-VirtualMicrophone.ps1
+$compilerOptions = @()
+if ($EnableVBCableIntegration) {
+    # Personal setup only; obtain the author's agreement before redistribution.
+    Copy-Item installer/Install-VirtualMicrophone.ps1 dist/VoiceLab/Install-VirtualMicrophone.ps1
+    $compilerOptions += "/DIntegrateVBCable=1"
+}
 $appVersion = (& $python -c "from voicelab import __version__; print(__version__)").Trim()
 if ($LASTEXITCODE -ne 0) { throw "Could not read app version" }
-& $CompilerPath "/DAppVersion=$appVersion" installer/VoiceLab.iss
+& $CompilerPath "/DAppVersion=$appVersion" @compilerOptions installer/VoiceLab.iss
 if ($LASTEXITCODE -ne 0) { throw "Installer compiler failed ($LASTEXITCODE)" }
 
 $installer = Join-Path (Get-Location) "dist\installer\VoiceLab-Setup.exe"

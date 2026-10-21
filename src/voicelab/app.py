@@ -1,3 +1,4 @@
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .audio import AudioEngine, list_devices
+from . import __version__
 from .avatars import avatar_icon
 from .effects import render_file
 from .presets import CATEGORIES, PRESETS, PRESET_BY_ID
@@ -62,6 +64,19 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 QToolTip { background: #273447; color: white; border: none; padding: 6px; }
 """
+
+
+def virtual_microphone_helper():
+    if sys.platform != "win32":
+        return None
+    if getattr(sys, "frozen", False):
+        helper = Path(sys.executable).parent / "Install-VirtualMicrophone.ps1"
+    elif (os.environ.get("VOICELAB_VBCABLE_INTEGRATION_AUTHORIZED") == "1"
+          or os.environ.get("VOICELAB_PERSONAL_DRIVER_SETUP") == "1"):
+        helper = Path(__file__).resolve().parents[2] / "installer" / "Install-VirtualMicrophone.ps1"
+    else:
+        return None
+    return helper if helper.is_file() else None
 
 
 def label(text, name=None, wrap=False):
@@ -251,7 +266,10 @@ class MainWindow(QMainWindow):
         self.route_hint = label("", "small", True)
         devices_layout.addWidget(self.route_hint)
         self.install_cable_button = QPushButton("Установить виртуальный микрофон ↗")
-        self.install_cable_button.setToolTip("Скачать официальный VB-CABLE и запустить установку. Windows запросит права администратора.")
+        self.install_cable_button.setToolTip(
+            "Скачать официальный VB-CABLE и запустить установку. Windows запросит права администратора."
+            if virtual_microphone_helper() else "Открыть официальный сайт VB-CABLE для отдельной установки драйвера."
+        )
         self.install_cable_button.clicked.connect(self.install_virtual_microphone)
         devices_layout.addWidget(self.install_cable_button)
         self.refresh_button = QPushButton("↻  Обновить устройства")
@@ -320,7 +338,7 @@ class MainWindow(QMainWindow):
         footer = QHBoxLayout()
         footer.addWidget(label("●  Обработка на устройстве · Без аккаунта и облака", "small"))
         footer.addStretch()
-        footer.addWidget(label("VoiceLab  /  0.1.0", "small"))
+        footer.addWidget(label(f"VoiceLab  /  {__version__}", "small"))
         outer.addLayout(footer)
         self.setCentralWidget(root)
         self.select_preset(self.selected)
@@ -554,8 +572,8 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "Discord и игры", (
-            "1. Если виртуального микрофона нет, нажмите «Установить виртуальный микрофон» в VoiceLab. "
-            "Приложение скачает официальный VB-CABLE и запустит установку. "
+            "1. Если виртуального микрофона нет, нажмите «Установить виртуальный микрофон» в VoiceLab "
+            "и следуйте инструкциям официального VB-CABLE. "
             "В окне VB-CABLE нажмите Install Driver. Windows запросит права администратора; может понадобиться перезагрузка.\n\n"
             "2. В VoiceLab выберите физический микрофон, а выход — CABLE Input (VB-Audio Virtual Cable).\n\n"
             "3. В Discord → Голос и видео → Устройство ввода выберите CABLE Output. "
@@ -567,18 +585,14 @@ class MainWindow(QMainWindow):
         ))
 
     def install_virtual_microphone(self):
-        if sys.platform == "win32":
-            if getattr(sys, "frozen", False):
-                helper = Path(sys.executable).parent / "Install-VirtualMicrophone.ps1"
-            else:
-                helper = Path(__file__).resolve().parents[2] / "installer" / "Install-VirtualMicrophone.ps1"
-            if helper.is_file():
-                started, _ = QProcess.startDetached("powershell.exe", [
-                    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper),
-                ])
-                if not started:
-                    QMessageBox.warning(self, "Виртуальный микрофон", "Не удалось запустить установку VB-CABLE.")
-                return
+        helper = virtual_microphone_helper()
+        if helper:
+            started, _ = QProcess.startDetached("powershell.exe", [
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper),
+            ])
+            if not started:
+                QMessageBox.warning(self, "Виртуальный микрофон", "Не удалось запустить установку VB-CABLE.")
+            return
         QDesktopServices.openUrl(QUrl("https://vb-audio.com/Cable/"))
 
     def closeEvent(self, event: QCloseEvent):
