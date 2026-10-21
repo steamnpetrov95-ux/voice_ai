@@ -29,7 +29,11 @@ def fast_pitch(audio):
             continue
         candidates = np.flatnonzero(curve[index, minimum:maximum + 1] < 0.1)
         if not candidates.size:
-            continue
+            # Microphone noise can raise the whole periodic trough above the
+            # clean-speech threshold. Aperiodic noise still stays unvoiced.
+            candidates = np.flatnonzero(curve[index, minimum:maximum + 1] < 0.25)
+            if not candidates.size:
+                continue
         lag = int(candidates[0]) + minimum
         while lag < maximum and curve[index, lag + 1] < curve[index, lag]:
             lag += 1

@@ -97,6 +97,15 @@ def test_fast_pitch_does_not_voice_silence_dc_or_noise():
     assert fast_pitch(np.zeros(80)).shape == (0,)
 
 
+def test_fast_pitch_retains_voicing_with_microphone_background_noise():
+    from voicelab.f0 import fast_pitch
+    time = np.arange(16000) / 16000
+    audio = 0.1 * np.sin(2 * np.pi * 180 * time) + np.random.default_rng(30).normal(0, 0.03, 16000)
+    pitch = fast_pitch(audio)[5:-5]
+    assert np.count_nonzero(pitch) > 85
+    assert np.median(pitch) == pytest.approx(180, rel=0.03)
+
+
 def test_light_profile_runs_without_loading_pitch_network(voice, monkeypatch):
     loaded = []
     original = neural._session
