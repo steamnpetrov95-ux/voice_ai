@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QObject, QPointF, QSize, QThread, QTimer, Qt, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, QPointF, QProcess, QSize, QThread, QTimer, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QColor, QCloseEvent, QDesktopServices, QFont, QIcon, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout,
@@ -251,8 +251,8 @@ class MainWindow(QMainWindow):
         self.route_hint = label("", "small", True)
         devices_layout.addWidget(self.route_hint)
         self.install_cable_button = QPushButton("Установить виртуальный микрофон ↗")
-        self.install_cable_button.setToolTip("Открыть официальный сайт VB-CABLE. Установка драйвера выполняется пользователем на Windows.")
-        self.install_cable_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://vb-audio.com/Cable/")))
+        self.install_cable_button.setToolTip("Скачать официальный VB-CABLE и запустить установку. Windows запросит права администратора.")
+        self.install_cable_button.clicked.connect(self.install_virtual_microphone)
         devices_layout.addWidget(self.install_cable_button)
         self.refresh_button = QPushButton("↻  Обновить устройства")
         self.refresh_button.clicked.connect(self.refresh_devices)
@@ -554,8 +554,9 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "Discord и игры", (
-            "1. Установите VB-CABLE с официального сайта vb-audio.com/Cable/ и перезагрузите Windows. "
-            "VoiceLab не устанавливает драйверы автоматически.\n\n"
+            "1. Если виртуального микрофона нет, нажмите «Установить виртуальный микрофон» в VoiceLab. "
+            "Приложение скачает официальный VB-CABLE и запустит установку. "
+            "В окне VB-CABLE нажмите Install Driver. Windows запросит права администратора; может понадобиться перезагрузка.\n\n"
             "2. В VoiceLab выберите физический микрофон, а выход — CABLE Input (VB-Audio Virtual Cable).\n\n"
             "3. В Discord → Голос и видео → Устройство ввода выберите CABLE Output. "
             "В игре также выберите CABLE Output.\n\n"
@@ -564,6 +565,21 @@ class MainWindow(QMainWindow):
             "Без виртуального кабеля можно слушать результат в наушниках и записывать WAV. "
             "Это DSP-эффекты, а не нейросетевое клонирование голоса."
         ))
+
+    def install_virtual_microphone(self):
+        if sys.platform == "win32":
+            if getattr(sys, "frozen", False):
+                helper = Path(sys.executable).parent / "Install-VirtualMicrophone.ps1"
+            else:
+                helper = Path(__file__).resolve().parents[2] / "installer" / "Install-VirtualMicrophone.ps1"
+            if helper.is_file():
+                started, _ = QProcess.startDetached("powershell.exe", [
+                    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(helper),
+                ])
+                if not started:
+                    QMessageBox.warning(self, "Виртуальный микрофон", "Не удалось запустить установку VB-CABLE.")
+                return
+        QDesktopServices.openUrl(QUrl("https://vb-audio.com/Cable/"))
 
     def closeEvent(self, event: QCloseEvent):
         if self._render_thread is not None:

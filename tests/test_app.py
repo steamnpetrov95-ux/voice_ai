@@ -68,6 +68,20 @@ def test_virtual_mode_never_falls_back_to_speakers(window, monkeypatch):
     assert "VB-CABLE" in window.device_note.text()
 
 
+def test_installed_app_starts_bundled_driver_setup(window, monkeypatch, tmp_path):
+    helper = tmp_path / "Install-VirtualMicrophone.ps1"
+    helper.write_text("# driver setup", encoding="utf-8")
+    monkeypatch.setattr(ui.sys, "platform", "win32")
+    monkeypatch.setattr(ui.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(ui.sys, "executable", str(tmp_path / "VoiceLab.exe"))
+    launches = []
+    monkeypatch.setattr(ui.QProcess, "startDetached", lambda program, args: (launches.append((program, args)) is None, 123))
+    window.install_virtual_microphone()
+    assert len(launches) == 1
+    assert launches[0][0] == "powershell.exe"
+    assert launches[0][1][-1] == str(helper)
+
+
 def test_search_and_category_filter(window, qt_app):
     window.search.setText("сакура")
     qt_app.processEvents()

@@ -5,11 +5,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\setup-windows.ps1"
 if errorlevel 1 goto failed
 ".venv\Scripts\python.exe" -m pytest -q
 if errorlevel 1 goto failed
-".venv\Scripts\python.exe" -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile scripts\desktop_entry.py
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\build-windows.ps1"
 if errorlevel 1 goto failed
 echo.
-echo Ready: dist\VoiceLab\VoiceLab.exe
-echo Copy the ENTIRE dist\VoiceLab folder. It runs without Python.
+echo Ready: dist\installer\VoiceLab-Setup.exe
+echo Share this ONE installer. Python is not required on the target computer.
 pause
 exit /b 0
 :failed

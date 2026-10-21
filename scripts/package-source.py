@@ -10,7 +10,7 @@ files = [root / name for name in (
     "README.md", ".gitignore", "pyproject.toml", "requirements.lock", "uv.lock",
     "Start-VoiceLab.bat", "Build-Windows.bat",
 )]
-for folder in ("src", "tests", "scripts", "docs", ".github"):
+for folder in ("src", "tests", "scripts", "installer", "docs", ".github"):
     files.extend(path for path in (root / folder).rglob("*")
                  if path.is_file() and "__pycache__" not in path.parts)
 with ZipFile(target, "w", ZIP_DEFLATED) as archive:
