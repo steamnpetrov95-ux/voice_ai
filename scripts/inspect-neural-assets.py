@@ -27,11 +27,14 @@ if queries:
 if sources:
     for repository in sources[:8]:
         info = read_json(f"https://huggingface.co/api/models/{repository}?blobs=true")
+        relevant = [item for item in info["siblings"] if any(word in item["rfilename"].casefold() for word in
+                    ("deadpool", "дэдпул", "бэтмен", "бетмен", "batman", "loki", "локи", "танос", "thanos",
+                     "tony", "тони", "старк", "желез", "iron", "гаврил", "мясник", "зайцев", "thor"))]
         notice("Voice source " + repository, {
             "id": info["id"], "sha": info["sha"], "tags": info.get("tags", []),
             "cardData": info.get("cardData"),
             "siblings": [{"name": item["rfilename"], "size": item.get("size"), "lfs": item.get("lfs")}
-                         for item in info["siblings"][:12]],
+                         for item in (relevant or info["siblings"][:12])[:18]],
         })
     raise SystemExit(0)
 
