@@ -4,6 +4,9 @@ import json
 import os
 import urllib.request
 from urllib.parse import quote
+import zipfile
+
+from remote_zip import HTTPRangeFile
 
 
 def read_json(url):
@@ -36,6 +39,17 @@ if sources:
             "siblings": [{"name": item["rfilename"], "size": item.get("size"), "lfs": item.get("lfs")}
                          for item in (relevant or info["siblings"][:12])[:18]],
         })
+        if os.environ.get("MODEL_ARCHIVES") == "true":
+            for item in info["siblings"]:
+                if not item["rfilename"].lower().endswith(".zip"):
+                    continue
+                url = f'https://huggingface.co/{repository}/resolve/{info["sha"]}/{quote(item["rfilename"])}'
+                with HTTPRangeFile(url, item["size"]) as remote, zipfile.ZipFile(remote) as archive:
+                    names = [{"name": member.filename, "size": member.file_size} for member in archive.infolist()
+                             if any(word in member.filename.casefold() for word in
+                                ("deadpool", "дэдпул", "бэтмен", "бетмен", "batman", "loki", "локи", "танос", "thanos",
+                                 "tony", "тони", "старк", "желез", "iron", "гаврил", "мясник", "зайцев", "thor"))]
+                    notice("Archive characters " + repository, names[:30])
     raise SystemExit(0)
 
 catalogue = read_json("https://huggingface.co/wok000/vcclient_model/raw/main/samples_0004_o.json")

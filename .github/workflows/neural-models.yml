@@ -11,6 +11,10 @@ on:
         description: 'JSON array of model search terms'
         default: '[]'
         required: false
+      archives:
+        description: 'Inspect archive directories using bounded byte ranges'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,4 +32,5 @@ jobs:
         env:
           MODEL_SOURCES: ${{ inputs.sources }}
           MODEL_SEARCHES: ${{ inputs.searches }}
+          MODEL_ARCHIVES: ${{ inputs.archives }}
         run: python scripts/inspect-neural-assets.py
