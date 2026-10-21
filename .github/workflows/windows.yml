@@ -53,6 +53,9 @@ jobs:
           if ($installer.ExitCode -ne 0) { throw "Install failed: $($installer.ExitCode)" }
           $app = Join-Path $installDir 'VoiceLab.exe'
           if (-not (Test-Path $app)) { throw 'Installed application is missing' }
+          $desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'npetrov VoiceLab.lnk'
+          $menuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'npetrov VoiceLab.lnk'
+          if (-not (Test-Path $desktopShortcut) -or -not (Test-Path $menuShortcut)) { throw 'Branded application shortcuts are missing' }
           $helperPresent = Test-Path (Join-Path $installDir 'Install-VirtualMicrophone.ps1')
           $integrationEnabled = $env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true'
           if ($helperPresent -ne $integrationEnabled) { throw 'Virtual microphone integration does not match the selected build' }
@@ -62,6 +65,7 @@ jobs:
           $uninstall = Start-Process -FilePath (Join-Path $installDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
           if (Test-Path $app) { throw 'Application was not removed' }
+          if ((Test-Path $desktopShortcut) -or (Test-Path $menuShortcut)) { throw 'Application shortcuts were not removed' }
       - uses: actions/upload-artifact@v4
         with:
           name: VoiceLab-Setup-Windows-x64
@@ -87,7 +91,7 @@ jobs:
           path: release
       - uses: softprops/action-gh-release@v2
         with:
-          name: VoiceLab ${{ github.ref_name }}
+          name: npetrov VoiceLab ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             release/VoiceLab-Setup.exe

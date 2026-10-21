@@ -31,6 +31,9 @@ def window(qt_app, monkeypatch, tmp_path):
 
 
 def test_no_hardware_disables_start_but_keeps_file_rendering(window):
+    assert "npetrov VoiceLab" in window.windowTitle()
+    assert not window.monitor_check.isChecked()
+    assert not window.monitor_check.isEnabled()
     assert not window.start_button.isEnabled()
     assert window.render_button.isEnabled()
     assert len(window.preset_buttons) == 48
@@ -44,6 +47,7 @@ def test_virtual_route_selects_cable_and_excludes_feedback_input(window, monkeyp
     headphones = Device(3, "Headphones", "WASAPI", 2)
     cable_playback = Device(4, "CABLE Input (VB-Audio Virtual Cable)", "WASAPI", 2)
     monkeypatch.setattr(ui, "list_devices", lambda: ([microphone, cable_capture], [headphones, cable_playback]))
+    window.routing_combo.setCurrentIndex(0)
     window.refresh_devices()
     assert window.input_combo.count() == 1
     assert window.input_combo.currentData() == 1
@@ -51,9 +55,62 @@ def test_virtual_route_selects_cable_and_excludes_feedback_input(window, monkeyp
     assert window.output_combo.currentData() == 4
     assert window.start_button.isEnabled()
     assert window.install_cable_button.isHidden()
+    assert window.monitor_combo.count() == 1
+    assert window.monitor_combo.currentData() == 3
+    assert window.monitor_check.isEnabled()
     window.routing_combo.setCurrentIndex(1)
     assert window.output_combo.count() == 1
     assert window.output_combo.currentData() == 3
+    assert window.monitor_check.isEnabled()
+
+
+def test_checkbox_toggles_live_monitor_while_main_route_keeps_running(window, monkeypatch):
+    monkeypatch.setattr(ui, "list_devices", lambda: (
+        [Device(1, "USB Microphone", "WASAPI", 1)],
+        [Device(3, "Headphones", "WASAPI", 2), Device(4, "CABLE Input", "WASAPI", 2)],
+    ))
+    window.refresh_devices()
+    window.routing_combo.setCurrentIndex(0)
+    calls = []
+
+    class Monitor:
+        def close(self):
+            calls.append("close")
+
+    def monitor(device):
+        calls.append(device)
+        window.engine._monitor = Monitor()
+
+    monkeypatch.setattr(window.engine, "start_monitoring", monitor)
+    window.engine.running = True
+    window.set_running(True)
+    window.monitor_check.setChecked(True)
+    assert calls == [3]
+    assert not window.monitor_combo.isEnabled()
+    assert not window.output_combo.isEnabled()
+    window.monitor_check.setChecked(False)
+    assert calls == [3, "close"]
+    assert window.engine.running
+    assert window.monitor_combo.isEnabled()
+    assert not window.output_combo.isEnabled()
+
+
+def test_monitor_failure_unchecks_box_and_keeps_main_route(window, monkeypatch):
+    window.monitor_combo.addItem("Headphones", 3)
+    window.engine.running = True
+    window.update_monitor_controls()
+
+    def fail(device):
+        raise RuntimeError("busy")
+
+    messages = []
+    monkeypatch.setattr(window.engine, "start_monitoring", fail)
+    monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: messages.append(args[-1]))
+    window.monitor_check.setChecked(True)
+    assert not window.monitor_check.isChecked()
+    assert window.engine.running
+    assert window.monitor_combo.isEnabled()
+    assert "busy" in messages[0]
 
 
 def test_virtual_mode_never_falls_back_to_speakers(window, monkeypatch):
@@ -61,11 +118,35 @@ def test_virtual_mode_never_falls_back_to_speakers(window, monkeypatch):
         [Device(1, "USB Microphone", "WASAPI", 1)],
         [Device(2, "Speakers", "WASAPI", 2)],
     ))
+    window.routing_combo.setCurrentIndex(0)
     window.refresh_devices()
     assert window.output_combo.count() == 0
     assert not window.start_button.isEnabled()
     assert window.install_cable_button.isVisible()
     assert "VB-CABLE" in window.device_note.text()
+
+
+def test_standalone_mode_starts_without_virtual_output_or_driver(window, monkeypatch):
+    monkeypatch.setattr(ui, "list_devices", lambda: (
+        [Device(1, "USB Microphone", "WASAPI", 1)],
+        [Device(3, "Headphones", "WASAPI", 2)],
+    ))
+    window.routing_combo.setCurrentIndex(1)
+    window.refresh_devices()
+    assert window.start_button.isEnabled()
+    assert window.output_combo.isHidden()
+    assert window.install_cable_button.isHidden()
+    calls = []
+
+    def start(microphone, output):
+        calls.append((microphone, output))
+        window.engine.running = True
+
+    monkeypatch.setattr(window.engine, "start", start)
+    window.toggle_audio()
+    assert calls == [(1, None)]
+    assert window.engine.running
+    assert window.monitor_check.isEnabled()
 
 
 def test_installed_app_starts_bundled_driver_setup(window, monkeypatch, tmp_path):

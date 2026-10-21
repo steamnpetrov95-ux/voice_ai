@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .audio import AudioEngine, list_devices
-from . import __version__
+from . import APP_NAME, __version__
 from .avatars import avatar_icon
 from .effects import render_file
 from .presets import CATEGORIES, PRESETS, PRESET_BY_ID
@@ -140,7 +140,7 @@ class RenderWorker(QObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("VoiceLab — локальное изменение голоса")
+        self.setWindowTitle(f"{APP_NAME} — локальное изменение голоса")
         self.resize(1280, 940)
         self.setMinimumSize(1000, 760)
         self.engine = AudioEngine()
@@ -154,13 +154,13 @@ class MainWindow(QMainWindow):
         outer.setSpacing(22)
 
         header = QHBoxLayout()
-        header.addWidget(label("∿  VoiceLab", "brand"))
+        header.addWidget(label(f"∿  {APP_NAME}", "brand"))
         header.addSpacing(16)
         header.addWidget(label("LOCAL VOICE STUDIO", "eyebrow"))
         header.addStretch()
         self.status = label("●  Микрофон выключен", "status")
         header.addWidget(self.status)
-        help_button = QPushButton("Подключить Discord ↗")
+        help_button = QPushButton("Как пользоваться ↗")
         help_button.clicked.connect(self.show_help)
         header.addWidget(help_button)
         self.render_button = QPushButton("Обработать файл…")
@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
         devices_layout.addWidget(label("КУДА ПЕРЕДАВАТЬ ГОЛОС", "small"))
         self.routing_combo = QComboBox()
         self.routing_combo.addItem("Виртуальный микрофон", "virtual")
-        self.routing_combo.addItem("Прослушивание в наушниках", "monitor")
+        self.routing_combo.addItem("Только наушники — без драйвера", "monitor")
         self.routing_combo.setCurrentIndex(1 if self.preferences.get("routing") == "monitor" else 0)
         self.routing_combo.currentIndexChanged.connect(self.refresh_devices)
         devices_layout.addWidget(self.routing_combo)
@@ -259,10 +259,21 @@ class MainWindow(QMainWindow):
         self.input_combo.setMinimumWidth(250)
         self.input_combo.setMaximumWidth(360)
         devices_layout.addWidget(self.input_combo)
-        devices_layout.addWidget(label("ОБРАБОТАННЫЙ ЗВУК / ВЫХОД", "small"))
+        self.output_caption = label("ОБРАБОТАННЫЙ ЗВУК / ВЫХОД", "small")
+        devices_layout.addWidget(self.output_caption)
         self.output_combo = QComboBox()
         self.output_combo.setMaximumWidth(360)
         devices_layout.addWidget(self.output_combo)
+        self.monitor_check = QCheckBox("Слышать себя в реальном времени")
+        self.monitor_check.setToolTip("Включить или выключить обработанный голос в выбранных наушниках.")
+        self.monitor_check.toggled.connect(self.toggle_monitoring)
+        devices_layout.addWidget(self.monitor_check)
+        devices_layout.addWidget(label("НАУШНИКИ ДЛЯ ПРОСЛУШИВАНИЯ", "small"))
+        self.monitor_combo = QComboBox()
+        self.monitor_combo.setMaximumWidth(360)
+        self.monitor_combo.setAccessibleName("Наушники для прослушивания")
+        devices_layout.addWidget(self.monitor_combo)
+        devices_layout.addWidget(label("Для прослушивания используйте наушники, чтобы избежать эха.", "small", True))
         self.route_hint = label("", "small", True)
         devices_layout.addWidget(self.route_hint)
         self.install_cable_button = QPushButton("Установить виртуальный микрофон ↗")
@@ -338,7 +349,7 @@ class MainWindow(QMainWindow):
         footer = QHBoxLayout()
         footer.addWidget(label("●  Обработка на устройстве · Без аккаунта и облака", "small"))
         footer.addStretch()
-        footer.addWidget(label(f"VoiceLab  /  {__version__}", "small"))
+        footer.addWidget(label(f"{APP_NAME}  /  {__version__}", "small"))
         outer.addLayout(footer)
         self.setCentralWidget(root)
         self.select_preset(self.selected)
@@ -418,16 +429,23 @@ class MainWindow(QMainWindow):
     def refresh_devices(self):
         previous_input = self.input_combo.currentText() or self.preferences.get("input")
         previous_output = self.output_combo.currentText() or self.preferences.get("output")
+        previous_monitor = self.monitor_combo.currentText() or self.preferences.get("monitor_output")
         self.input_combo.clear()
         self.output_combo.clear()
+        self.monitor_combo.clear()
         try:
             inputs, outputs = list_devices()
             # Never feed the virtual capture endpoint back into its own playback.
             inputs = [device for device in inputs if not is_virtual_input(device.name) and not is_virtual_output(device.name)]
             virtual_mode = self.routing_combo.currentData() == "virtual"
+            self.output_caption.setVisible(virtual_mode)
+            self.output_combo.setVisible(virtual_mode)
+            monitor_outputs = [device for device in outputs
+                               if not is_virtual_output(device.name) and not is_virtual_input(device.name)]
             outputs = [device for device in outputs if is_virtual_output(device.name) == virtual_mode]
             for combo, devices, previous in ((self.input_combo, inputs, previous_input),
-                                              (self.output_combo, outputs, previous_output)):
+                                              (self.output_combo, outputs, previous_output),
+                                              (self.monitor_combo, monitor_outputs, previous_monitor)):
                 for device in devices:
                     combo.addItem(device.label, device.index)
                 selected = combo.findText(previous or "")
@@ -437,7 +455,7 @@ class MainWindow(QMainWindow):
             self.start_button.setEnabled(ready)
             self.install_cable_button.setVisible(virtual_mode and not outputs)
             if virtual_mode:
-                self.route_hint.setText("Микрофон → эффекты → VB-CABLE. В Discord и игре выберите вход CABLE Output.")
+                self.route_hint.setText("Микрофон → эффекты → VB-CABLE. В нужном приложении выберите вход CABLE Output.")
                 if not outputs:
                     self.device_note.setText("Виртуальный микрофон не найден. Установите VB-CABLE, перезагрузите Windows и обновите устройства.")
                 elif not inputs:
@@ -445,11 +463,36 @@ class MainWindow(QMainWindow):
                 else:
                     self.device_note.setText("Готово: обработанный голос пойдёт в виртуальное устройство.")
             else:
-                self.route_hint.setText("Обработанный голос идёт в наушники. Для Discord переключитесь на виртуальный микрофон.")
+                self.route_hint.setText("Микрофон → эффекты → наушники. Включите микрофон и галочку «Слышать себя». VB-CABLE не нужен.")
                 self.device_note.setText("" if ready else "Нет доступного микрофона или обычного аудиовыхода.")
+            self.update_monitor_controls()
         except Exception as exc:
             self.start_button.setEnabled(False)
+            self.monitor_check.setChecked(False)
+            self.monitor_check.setEnabled(False)
+            self.monitor_combo.setEnabled(False)
             self.device_note.setText(f"Не удалось получить устройства: {exc}")
+
+    def update_monitor_controls(self):
+        available = self.monitor_combo.count() > 0
+        if not available:
+            self.monitor_check.setChecked(False)
+        self.monitor_check.setEnabled(available)
+        self.monitor_combo.setEnabled(available and not self.engine.monitoring)
+
+    def toggle_monitoring(self, checked):
+        if self.engine.running:
+            try:
+                if checked:
+                    self.engine.start_monitoring(self.monitor_combo.currentData())
+                else:
+                    self.engine.stop_monitoring()
+            except Exception as exc:
+                self.monitor_check.setChecked(False)
+                QMessageBox.warning(self, "Прослушивание голоса",
+                                    f"Не удалось включить прослушивание: {exc}\n\n"
+                                    "Основная обработка микрофона продолжает работать.")
+        self.update_monitor_controls()
 
     def toggle_audio(self):
         if self.engine.running:
@@ -458,31 +501,26 @@ class MainWindow(QMainWindow):
             return
         if self.input_combo.currentData() is None or self.output_combo.currentData() is None:
             return
-        if self.routing_combo.currentData() == "monitor":
-            result = QMessageBox.question(
-                self, "Прослушивание голоса",
-                "Выбран обычный аудиовыход. Используйте наушники, чтобы звук не попадал обратно в микрофон.\n\nВключить прослушивание?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if result != QMessageBox.StandardButton.Yes:
-                return
         try:
-            self.engine.start(self.input_combo.currentData(), self.output_combo.currentData())
+            output = self.output_combo.currentData() if self.routing_combo.currentData() == "virtual" else None
+            self.engine.start(self.input_combo.currentData(), output)
             self._last_error = ""
             self.set_running(True)
+            if self.monitor_check.isChecked():
+                self.toggle_monitoring(True)
         except Exception as exc:
             self.set_running(False)
             QMessageBox.critical(self, "Не удалось включить микрофон", str(exc))
 
     def set_running(self, running):
+        self.update_monitor_controls()
         self.routing_combo.setEnabled(not running)
         self.input_combo.setEnabled(not running)
         self.output_combo.setEnabled(not running)
         self.refresh_button.setEnabled(not running)
         self.start_button.setText("Остановить микрофон" if running else "Включить микрофон")
         self.record_button.setEnabled(running)
-        route_name = "Виртуальный микрофон включён" if self.routing_combo.currentData() == "virtual" else "Прослушивание включено"
+        route_name = "Виртуальный микрофон включён" if self.routing_combo.currentData() == "virtual" else "Обработка микрофона включена"
         self.status.setText(f"●  {route_name}" if running else "●  Микрофон выключен")
         self.rate_label.setText(f"{self.engine.sample_rate / 1000:g} kHz · MONO" if running else "Ожидание микрофона")
         if not running:
@@ -548,6 +586,12 @@ class MainWindow(QMainWindow):
 
     def tick(self):
         self.engine.check_health()
+        if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
+            self.monitor_check.setChecked(False)
+        if self.engine.monitor_error:
+            message = self.engine.monitor_error
+            self.engine.monitor_error = ""
+            QMessageBox.warning(self, "Прослушивание голоса", message)
         self.input_meter.setValue(round(min(1, self.engine.input_level) * 100))
         self.output_meter.setValue(round(min(1, self.engine.output_level) * 100))
         samples = self.engine.waveform if self.engine.running else np.zeros(128)
@@ -571,17 +615,18 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Аудиодвижок", error)
 
     def show_help(self):
-        QMessageBox.information(self, "Discord и игры", (
-            "1. Если виртуального микрофона нет, нажмите «Установить виртуальный микрофон» в VoiceLab "
-            "и следуйте инструкциям официального VB-CABLE. "
-            "В окне VB-CABLE нажмите Install Driver. Windows запросит права администратора; может понадобиться перезагрузка.\n\n"
-            "2. В VoiceLab выберите физический микрофон, а выход — CABLE Input (VB-Audio Virtual Cable).\n\n"
-            "3. В Discord → Голос и видео → Устройство ввода выберите CABLE Output. "
-            "В игре также выберите CABLE Output.\n\n"
-            "4. Включите микрофон в VoiceLab. Выход Discord оставьте на наушниках. "
-            "Если эффекты подавляются, попробуйте выключить шумоподавление и автоматическую регулировку усиления в Discord.\n\n"
-            "Без виртуального кабеля можно слушать результат в наушниках и записывать WAV. "
-            "Это DSP-эффекты, а не нейросетевое клонирование голоса."
+        QMessageBox.information(self, "Как пользоваться", (
+            f"1. В {APP_NAME} выберите режим «Виртуальный микрофон» и ваш физический микрофон.\n\n"
+            "2. Если виртуального выхода нет, нажмите «Установить виртуальный микрофон». "
+            "В официальном установщике VB-CABLE нажмите Install Driver и перезагрузите Windows, если потребуется.\n\n"
+            "3. Выход приложения — CABLE Input. В списке микрофонов Windows и в нужных программах "
+            "выбирайте CABLE Output (VB-Audio Virtual Cable). Прямое подключение к Discord не требуется.\n\n"
+            "4. Выберите голос и нажмите «Включить микрофон». Для прослушивания выберите наушники "
+            "и включите галочку «Слышать себя в реальном времени». Её можно переключать во время работы. "
+            "Используйте наушники, чтобы избежать эха.\n\n"
+            "Для прослушивания без драйвера есть режим «Только наушники — без драйвера». "
+            "Обработанный голос также можно записать в WAV или применить эффекты к готовому файлу.\n\n"
+            "Это локальные DSP-эффекты, а не нейросетевое клонирование голоса."
         ))
 
     def install_virtual_microphone(self):
@@ -606,6 +651,7 @@ class MainWindow(QMainWindow):
             save_preferences({"preset": self.selected.id, "input": self.input_combo.currentText(),
                               "output": self.output_combo.currentText(),
                               "routing": self.routing_combo.currentData(),
+                              "monitor_output": self.monitor_combo.currentText(),
                               "tuning": {"pitch": self.pitch_slider.value(), "timbre": self.timbre_slider.value(),
                                          "clarity": self.clarity_slider.value(), "room": self.room_slider.value(),
                                          "gain": self.gain_slider.value(), "russian_speech": self.russian_speech.isChecked()}})
@@ -616,7 +662,7 @@ class MainWindow(QMainWindow):
 
 def run():
     app = QApplication(sys.argv)
-    app.setApplicationName("VoiceLab")
+    app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     app.setFont(QFont("Segoe UI", 10))

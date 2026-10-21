@@ -1,17 +1,17 @@
 ﻿; Compile after PyInstaller has created dist\VoiceLab.
 ; One downloadable installer; Python and Qt are included in the application.
 #ifndef AppVersion
-  #define AppVersion "0.1.1"
+  #define AppVersion "0.1.2"
 #endif
 
 [Setup]
 AppId={{2432E01A-A21E-48E1-A9DA-A30E0E296B10}
-AppName=VoiceLab
+AppName=npetrov VoiceLab
 AppVersion={#AppVersion}
-AppPublisher=VoiceLab
+AppPublisher=npetrov
 AppPublisherURL=https://github.com/steamnpetrov95-ux/voice_ai
 DefaultDirName={localappdata}\Programs\VoiceLab
-DefaultGroupName=VoiceLab
+DefaultGroupName=npetrov VoiceLab
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 #if VER >= EncodeVer(7, 0, 0)
@@ -42,20 +42,25 @@ Name: "virtualmic"; Description: "{cm:InstallVirtualMic}"; GroupDescription: "{c
 [CustomMessages]
 english.InstallVirtualMic=Install the VB-CABLE virtual microphone (Internet and administrator permission required)
 english.InstallingVirtualMic=Installing the virtual microphone...
-english.DriverFailed=VoiceLab is installed. Virtual microphone setup did not finish. You can retry it from VoiceLab.
+english.DriverFailed=npetrov VoiceLab is installed. Virtual microphone setup did not finish. You can retry it from npetrov VoiceLab.
 russian.InstallVirtualMic=Установить виртуальный микрофон VB-CABLE (нужны интернет и права администратора)
 russian.InstallingVirtualMic=Установка виртуального микрофона...
-russian.DriverFailed=VoiceLab установлен. Установка виртуального микрофона не завершена. Её можно повторить из VoiceLab.
+russian.DriverFailed=npetrov VoiceLab установлен. Установка виртуального микрофона не завершена. Её можно повторить из npetrov VoiceLab.
 
 [Files]
 Source: "..\dist\VoiceLab\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; Remove only the shortcuts created by older versions of this application.
+Type: files; Name: "{autoprograms}\VoiceLab.lnk"
+Type: files; Name: "{autodesktop}\VoiceLab.lnk"
+
 [Icons]
-Name: "{autoprograms}\VoiceLab"; Filename: "{app}\VoiceLab.exe"
-Name: "{autodesktop}\VoiceLab"; Filename: "{app}\VoiceLab.exe"; Tasks: desktopicon
+Name: "{autoprograms}\npetrov VoiceLab"; Filename: "{app}\VoiceLab.exe"
+Name: "{autodesktop}\npetrov VoiceLab"; Filename: "{app}\VoiceLab.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\VoiceLab.exe"; Description: "{cm:LaunchProgram,VoiceLab}"; Flags: nowait postinstall skipifsilent; Check: CanLaunchApp
+Filename: "{app}\VoiceLab.exe"; Description: "{cm:LaunchProgram,npetrov VoiceLab}"; Flags: nowait postinstall skipifsilent; Check: CanLaunchApp
 
 [Code]
 var

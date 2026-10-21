@@ -1,11 +1,12 @@
 import argparse
 import json
 
+from . import APP_NAME
 from .presets import PRESET_BY_ID
 
 
 def main():
-    parser = argparse.ArgumentParser(description="VoiceLab — локальные эффекты голоса")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME} — локальные эффекты голоса")
     parser.add_argument("--render", nargs=2, metavar=("INPUT", "OUTPUT"), help="Обработать аудиофайл в WAV")
     parser.add_argument("--preset", choices=PRESET_BY_ID, default="clean")
     parser.add_argument("--list-devices", action="store_true")
