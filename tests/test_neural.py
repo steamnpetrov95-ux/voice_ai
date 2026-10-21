@@ -168,3 +168,20 @@ def test_cancelled_download_is_not_published(tmp_path, monkeypatch):
     with pytest.raises(models.DownloadCancelled):
         models.download(asset, tmp_path / "voice.onnx", cancel=cancel)
     assert not list(tmp_path.iterdir())
+
+
+def test_import_reuses_bundled_common_model_without_network(tmp_path, monkeypatch):
+    import hashlib
+    payload = b"shared verified model"
+    asset = models.ModelAsset("https://huggingface.co/a/b/resolve/main/voice.onnx",
+                              hashlib.sha256(payload).hexdigest(), len(payload), "shared.onnx")
+    builtin = tmp_path / "application" / "models"
+    (builtin / "common").mkdir(parents=True)
+    original = builtin / "common" / asset.filename
+    original.write_bytes(payload)
+    monkeypatch.setattr(models, "_builtin_directory", lambda: builtin)
+    monkeypatch.setattr(models, "download", lambda *args: pytest.fail("Bundled model must not be downloaded again"))
+    root = tmp_path / "user-models"
+    models.ensure_common(asset, root, lambda *args: None, None)
+    original.unlink()
+    assert (root / "common" / asset.filename).read_bytes() == payload

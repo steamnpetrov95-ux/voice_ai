@@ -227,6 +227,7 @@ class AudioEngine:
                         self._in_queue.get_nowait()
                     except queue.Empty:
                         break
+                self.dropouts = 0
             self.loading = False
             while not self._stop.is_set():
                 try:

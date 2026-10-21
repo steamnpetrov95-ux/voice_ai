@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -110,6 +111,33 @@ def voice_directory():
     return data_dir() / "models"
 
 
+def _builtin_directory():
+    return (Path(sys.executable).resolve().parent / "models" if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parents[2] / "dist" / "neural-models")
+
+
+def ensure_common(asset, root, progress, cancel):
+    destination = root / "common" / asset.filename
+    builtin = _builtin_directory() / "common" / asset.filename
+    if (not destination.exists() and builtin.is_file() and builtin.stat().st_size == asset.size
+            and _hash(builtin) == asset.sha256):
+        if cancel is not None and cancel.is_set():
+            raise DownloadCancelled()
+        progress("Подготовка общей модели из установленного приложения…", 0)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(destination.name + ".part-" + uuid.uuid4().hex)
+        try:
+            try:
+                os.link(builtin, temporary)
+            except OSError:
+                shutil.copyfile(builtin, temporary)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return
+    download(asset, destination, progress, cancel)
+
+
 def _contained(root, relative):
     if not isinstance(relative, str):
         raise ValueError("Некорректный путь модели.")
@@ -120,8 +148,7 @@ def _contained(root, relative):
 
 
 def installed_voices():
-    builtin = (Path(sys.executable).resolve().parent / "models" if getattr(sys, "frozen", False)
-               else Path(__file__).resolve().parents[2] / "dist" / "neural-models")
+    builtin = _builtin_directory()
     voices = {}
     priorities = {}
     for path in sorted(builtin.glob("voices/*/voice.json")) + sorted(voice_directory().glob("voices/*/voice.json")):
@@ -170,7 +197,7 @@ def install_voice(source, name, progress=lambda message, percent: None, cancel=N
         rate, channels = voice_metadata(session)
         del session
         for key in (channels, "pitch"):
-            download(COMMON[key], root / "common" / COMMON[key].filename, progress, cancel)
+            ensure_common(COMMON[key], root, progress, cancel)
         if cancel is not None and cancel.is_set():
             raise DownloadCancelled()
         identifier = identity[:24]

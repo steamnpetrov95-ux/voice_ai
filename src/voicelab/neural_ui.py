@@ -182,6 +182,9 @@ class NeuralPanel(QWidget):
         self.buffer.setCurrentIndex(selected_buffer if selected_buffer >= 0 else 1)
         self.buffer.setToolTip("Меньший буфер уменьшает задержку. При прерываниях звука выберите больший.")
         layout.addWidget(self.buffer)
+        for combo in (self.voice_combo, self.provider, self.buffer):
+            combo.setMinimumContentsLength(12)
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)

@@ -127,9 +127,15 @@ class NeuralConverter:
         # A small symmetric pad compensates for ContentVec's convolution edges.
         padded = np.pad(audio, (160, 160), mode="reflect")
         encoded = self.encoder.run(None, {encoder_input.name: padded[None, None, :].astype(_dtype(encoder_input))})[0]
-        if encoded.ndim != 3 or encoded.shape[1] != self.voice.channels:
-            raise ValueError("Размерность кодировщика не совпадает с голосовой моделью.")
-        features = np.repeat(encoded.transpose(0, 2, 1), 2, axis=1)
+        if encoded.ndim != 3:
+            raise ValueError(f"Некорректная размерность кодировщика: {encoded.shape}.")
+        if encoded.shape[-1] == self.voice.channels:
+            features = encoded
+        elif encoded.shape[1] == self.voice.channels:
+            features = encoded.transpose(0, 2, 1)
+        else:
+            raise ValueError(f"Размерность кодировщика {encoded.shape} не совпадает с голосовой моделью ({self.voice.channels}).")
+        features = np.repeat(features, 2, axis=1)
         pitch_inputs = {item.name: item for item in self.pitch.get_inputs()}
         frequency = self.pitch.run(None, {
             "waveform": padded[None, :].astype(_dtype(pitch_inputs["waveform"])),

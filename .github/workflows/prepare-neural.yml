@@ -30,8 +30,17 @@ jobs:
         run: |
           python -m venv .neural-build
           .neural-build/Scripts/python -m pip install --require-hashes --extra-index-url https://download.pytorch.org/whl/cpu -r scripts/neural-build-requirements.lock
+      - uses: actions/cache/restore@v4
+        with:
+          path: dist/neural-models/common
+          key: rvc-common-61d0d059-84f05863-v1
       - name: Extract, export, and test actual Russian neural voices
         shell: pwsh
         run: |
           .neural-build/Scripts/python scripts/prepare-neural-voices.py --only $env:VOICE_COUNT
           if ($LASTEXITCODE -ne 0) { throw 'Neural export validation failed' }
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: dist/neural-models/common
+          key: rvc-common-61d0d059-84f05863-v1
