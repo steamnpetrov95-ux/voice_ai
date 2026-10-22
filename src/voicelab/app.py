@@ -17,7 +17,7 @@ from . import APP_NAME, __version__
 from .avatars import avatar_icon
 from .effects import render_file
 from .neural_ui import NeuralPanel
-from .presets import CATEGORIES, PRESETS, PRESET_BY_ID
+from .presets import CARTOON_PRESETS, CATEGORIES, PRESETS, PRESET_BY_ID
 from .routing import is_virtual_input, is_virtual_output
 from .settings import load_preferences, save_preferences
 from .voice_roles import actor_roles, roles_caption, roles_description
@@ -209,6 +209,10 @@ class MainWindow(QMainWindow):
         voice_mode_row.addWidget(self.ai.mode, 1)
         voice_mode_row.addWidget(self.ai.add_button)
         left.addLayout(voice_mode_row)
+        self.cartoon_button = QPushButton("✦  Мультяшные стили · без AI")
+        self.cartoon_button.setToolTip("12 быстрых образов без загрузки моделей. Перед переходом из AI остановите микрофон.")
+        self.cartoon_button.clicked.connect(self.open_cartoons)
+        left.addWidget(self.cartoon_button)
         presets_header = QHBoxLayout()
         self.catalog_title = label("Коллекция голосов", "section")
         presets_header.addWidget(self.catalog_title)
@@ -536,6 +540,14 @@ class MainWindow(QMainWindow):
         self.description.setText(preset.description)
         self.update_settings()
 
+    def open_cartoons(self):
+        if self._render_thread is not None or (self.engine.running and self.ai.active):
+            return
+        self.ai.mode.setCurrentIndex(self.ai.mode.findData("effects"))
+        self.search.clear()
+        self.category_combo.setCurrentText("Мультяшные")
+        self.select_preset(CARTOON_PRESETS[0])
+
     def update_settings(self, *args):
         settings = replace(self.selected.settings, pitch=self.pitch_slider.value(),
                            timbre=self.timbre_slider.value() / 100,
@@ -643,6 +655,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Не удалось включить микрофон", str(exc))
 
     def set_running(self, running):
+        self.cartoon_button.setEnabled(self._render_thread is None and (not running or not self.ai.active))
         live_switch = running and getattr(self.engine.neural_voice, "backend", "rvc") == "native"
         self.ai.set_running(running, allow_voice_switch=live_switch)
         native_keys = {voice.id for voice in self.ai.voices if getattr(voice, "backend", "rvc") == "native"}
@@ -752,6 +765,10 @@ class MainWindow(QMainWindow):
                 self.rate_label.setToolTip(profile + ". Время обработки не равно полной задержке: добавляются "
                                           "накопление звука, аудиодрайверы и виртуальный кабель.\n"
                                           + "\n".join(f"{names.get(key, key)}: {value:.0f} мс" for key, value in self.engine.stage_ms.items()))
+            elif self.selected.settings.quick_pitch:
+                self.rate_label.setText(f"Мульт-стиль · обработка {self.engine.processing_ms:.1f} мс")
+                self.rate_label.setToolTip("Быстрый DSP без нейросети. Сдвиг высоты использует историю 1–25 мс; "
+                                          "полная задержка также зависит от устройств и виртуального кабеля.")
         if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
             self.monitor_check.setChecked(False)
         if self.engine.monitor_error:

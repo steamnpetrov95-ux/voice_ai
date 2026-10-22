@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from voicelab import app as ui
 from voicelab.audio import Device
-from voicelab.presets import PRESET_BY_ID
+from voicelab.presets import PRESETS, PRESET_BY_ID
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def test_no_hardware_disables_start_but_keeps_file_rendering(window):
     assert not window.monitor_check.isEnabled()
     assert not window.start_button.isEnabled()
     assert window.render_button.isEnabled()
-    assert len(window.preset_buttons) == 48
+    assert len(window.preset_buttons) == len(PRESETS)
     assert window.routing_combo.currentData() == "virtual"
     assert window.install_cable_button.isVisible()
 
@@ -191,6 +191,32 @@ def test_controls_update_audio_settings_and_russian_profile(window):
     assert not window.clarity_slider.isEnabled()
     window.bypass.setChecked(True)
     assert not window.engine.settings.enabled
+
+
+def test_cartoon_shortcut_leaves_ai_and_selects_fast_style(window):
+    window.ai.mode.setCurrentIndex(0)
+    window.cartoon_button.click()
+    assert not window.ai.active
+    assert window.category_combo.currentText() == "Мультяшные"
+    assert window.engine.settings.quick_pitch
+    assert window.selected.id == "toon_squirrel"
+    assert sum(not button.isHidden() for button in window.preset_buttons.values()) == 12
+    window.select_preset(PRESET_BY_ID["toon_giant"])
+    assert window.engine.settings.pitch == -7
+    assert window.engine.settings.quick_pitch
+    # Re-entering AI must clear the cartoon DSP recipe.
+    window.ai.mode.setCurrentIndex(0)
+    assert window.selected.id == "clean"
+    assert not window.engine.settings.quick_pitch
+
+
+def test_cartoon_shortcut_cannot_interrupt_live_ai(window):
+    window.ai.mode.setCurrentIndex(0)
+    window.engine.running = True
+    window.set_running(True)
+    assert not window.cartoon_button.isEnabled()
+    window.open_cartoons()
+    assert window.ai.active
 
 
 def test_ai_mode_does_not_present_effects_as_neural_voices(window):

@@ -127,6 +127,8 @@ jobs:
           $render = Start-Process -FilePath $app -ArgumentList '--render', 'smoke-input.wav', 'installed-output.wav', '--preset', 'sakura' -Wait -PassThru
           if ($render.ExitCode -ne 0) { throw 'Installed application failed' }
           python -c "import numpy as np, soundfile as sf; a,r=sf.read('installed-output.wav'); assert r==48000 and len(a)==96000 and np.max(np.abs(a))>0.01"
+          python scripts/benchmark-cartoons.py --app $app
+          if ($LASTEXITCODE -ne 0) { throw 'Installed cartoon styles failed' }
           if (Test-Path dist/neural-models/SOURCES.json) {
             python scripts/smoke-neural-installer.py --app $app --models (Join-Path $installDir 'models')
             if ($LASTEXITCODE -ne 0) { throw 'Installed neural voice processing failed' }
@@ -178,7 +180,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
           }
           $releaseAssets = @('dist/installer/VoiceLab-Setup.exe', 'dist/installer/VoiceLab-Setup.exe.sha256')
-          foreach ($optionalAsset in @('dist/neural-benchmark.json', 'dist/native-benchmark.json', 'dist/native-reference.wav', 'dist/native-latency.json')) {
+          foreach ($optionalAsset in @('dist/cartoon-benchmark.json', 'dist/neural-benchmark.json', 'dist/native-benchmark.json', 'dist/native-reference.wav', 'dist/native-latency.json')) {
             if (Test-Path $optionalAsset) { $releaseAssets += $optionalAsset }
           }
           gh release upload $tag @releaseAssets --clobber

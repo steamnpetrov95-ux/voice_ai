@@ -14,6 +14,9 @@ class VoiceSettings:
     clarity: float = 2.0
     drive: float = 0.0
     echo: float = 0.0
+    quick_pitch: bool = False
+    robot_hz: float = 75.0
+    flutter: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -89,5 +92,21 @@ PRESETS += tuple(
                               drive=drive, chorus=chorus, echo=0.3 if key == "echo" else 0), category)
     for key, name, category, pitch, timbre, room, robot, drive, chorus in _CHARACTERS
 )
+# Short-delay DSP styles, deliberately distinct from actor/character AI models.
+CARTOON_PRESETS = (
+    Preset("toon_squirrel", "Бурундучок", "БЫСТРЫЙ", "Звонкий маленький герой: высокий, озорной голос. Мультяшная стилизация.", "↑", VoiceSettings(pitch=9, timbre=-0.6, quick_pitch=True), "Мультяшные"),
+    Preset("toon_sidekick", "Маленький помощник", "БЫСТРЫЙ", "Смешной помощник: высокий носовой голос с лёгкой дрожью.", "✦", VoiceSettings(pitch=6, timbre=-0.3, flutter=0.28, quick_pitch=True), "Мультяшные"),
+    Preset("toon_giant", "Добрый великан", "БЫСТРЫЙ", "Большой добродушный герой: тёплый бас без металлического эффекта.", "↓", VoiceSettings(pitch=-7, timbre=0.8, quick_pitch=True), "Мультяшные"),
+    Preset("toon_goblin", "Гоблин-плут", "БЫСТРЫЙ", "Хриплый хитрец: резкий носовой тембр и лёгкий перегруз.", "◆", VoiceSettings(pitch=3, timbre=-0.7, drive=4, quick_pitch=True), "Мультяшные"),
+    Preset("toon_duck", "Утёнок", "БЫСТРЫЙ", "Писклявый, дребезжащий голос мультяшного утёнка.", "↑", VoiceSettings(pitch=7, radio=True, robot=0.35, robot_hz=38, quick_pitch=True), "Мультяшные"),
+    Preset("toon_alien", "Пришелец", "БЫСТРЫЙ", "Высокий инопланетный голос с необычными металлическими обертонами.", "✦", VoiceSettings(pitch=4, robot=0.6, robot_hz=115, quick_pitch=True), "Мультяшные"),
+    Preset("toon_armor", "Герой в броне", "БЫСТРЫЙ", "Голос через шлем: плотный, с рацией и металлическим оттенком.", "⊞", VoiceSettings(pitch=-2, radio=True, robot=0.22, robot_hz=55, drive=2, quick_pitch=True), "Мультяшные"),
+    Preset("toon_villain", "Тёмный страж", "БЫСТРЫЙ", "Мрачный киногерой: низкий шероховатый голос. Не копия конкретного актёра.", "◆", VoiceSettings(pitch=-6, timbre=0.9, drive=5, quick_pitch=True), "Мультяшные"),
+    Preset("toon_droid", "Мульт-робот", "БЫСТРЫЙ", "Яркий механический помощник с сильной кольцевой модуляцией.", "⊞", VoiceSettings(robot=0.95, robot_hz=95, radio=True, quick_pitch=True), "Мультяшные"),
+    Preset("toon_witch", "Лесная ведьма", "БЫСТРЫЙ", "Скрипучий голос сказочной ведьмы с дрожащей подачей.", "✦", VoiceSettings(pitch=2, timbre=-0.5, flutter=0.65, drive=2, quick_pitch=True), "Мультяшные"),
+    Preset("toon_ogre", "Огр", "БЫСТРЫЙ", "Грубый бас большого сказочного существа с рычащими обертонами.", "◆", VoiceSettings(pitch=-10, timbre=1, robot=0.18, robot_hz=32, drive=4, quick_pitch=True), "Мультяшные"),
+    Preset("toon_puppet", "Кукольный герой", "БЫСТРЫЙ", "Забавный кукольный персонаж: приподнятый голос с трепещущей окраской.", "◉", VoiceSettings(pitch=5, timbre=0.3, flutter=0.45, quick_pitch=True), "Мультяшные"),
+)
+PRESETS = (PRESETS[0], *CARTOON_PRESETS, *PRESETS[1:])
 PRESET_BY_ID = {preset.id: preset for preset in PRESETS}
 CATEGORIES = ("Все голоса", *dict.fromkeys(preset.category for preset in PRESETS))

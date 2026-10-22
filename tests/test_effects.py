@@ -3,8 +3,8 @@ import pytest
 import soundfile as sf
 
 from voicelab.effects import VoiceProcessor, render_file
-from voicelab.pitch import StreamingPitchShifter
-from voicelab.presets import PRESETS, VoiceSettings
+from voicelab.pitch import QuickPitchShifter, StreamingPitchShifter
+from voicelab.presets import CARTOON_PRESETS, PRESETS, VoiceSettings
 
 RATE = 48000
 
@@ -53,6 +53,41 @@ def test_robot_produces_modulation_sidebands_and_continuity():
     spectrum = np.abs(np.fft.rfft(output))
     peaks = np.argsort(spectrum)[-2:]
     assert set(peaks) == {145, 295}
+
+
+@pytest.mark.parametrize("rate", [44100, 48000])
+@pytest.mark.parametrize("pitch", [-10, 9])
+def test_quick_pitch_is_causal_continuous_and_bounded(rate, pitch):
+    samples = np.random.default_rng(42).normal(0, 0.1, rate).astype(np.float32)
+    processor = QuickPitchShifter(pitch, rate)
+    blocks = [processor.process(samples[i:i + 229]) for i in range(0, len(samples), 229)]
+    whole = QuickPitchShifter(pitch, rate).process(samples)
+    np.testing.assert_allclose(np.concatenate(blocks), whole, atol=1e-6)
+    assert len(processor.history) <= rate * 0.026
+    # An impulse must emerge inside the stated delay bound, not a full AI block.
+    impulse = np.zeros(rate // 10, np.float32)
+    impulse[0] = 1
+    result = QuickPitchShifter(pitch, rate).process(impulse)
+    nonzero = np.flatnonzero(np.abs(result) > 1e-6)
+    assert len(nonzero) and nonzero[-1] < rate * 0.026
+
+
+@pytest.mark.parametrize("pitch", [-12, 12])
+def test_quick_pitch_changes_frequency_without_a_vocoder(pitch):
+    result = stream(VoiceProcessor(RATE, VoiceSettings(pitch=pitch, clarity=0, quick_pitch=True)), tone(500, 2))
+    stable = result[RATE:]
+    spectrum = np.abs(np.fft.rfft(stable * np.hanning(len(stable))))
+    frequency = np.fft.rfftfreq(len(stable), 1 / RATE)[np.argmax(spectrum)]
+    # Short moving delays deliberately introduce some granular sidebands.
+    assert frequency == pytest.approx(500 * 2 ** (pitch / 12), abs=25)
+
+
+def test_cartoon_styles_have_short_pitch_and_no_long_effect_tails():
+    assert len(CARTOON_PRESETS) == 12
+    for preset in CARTOON_PRESETS:
+        processor = VoiceProcessor(RATE, preset.settings)
+        assert processor.pitch_shifter is None or isinstance(processor.pitch_shifter, QuickPitchShifter)
+        assert not (preset.settings.room or preset.settings.echo or preset.settings.chorus)
 
 
 def test_radio_attenuates_low_frequencies():

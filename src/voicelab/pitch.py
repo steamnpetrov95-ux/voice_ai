@@ -8,6 +8,45 @@ FIFO absorbs the resampler's lookahead and gives a constant-size live output.
 import numpy as np
 
 
+class QuickPitchShifter:
+    """Two crossfaded moving delay taps for deliberately cartoonish voices.
+
+    No FFT, lookahead, or full-block FIFO. Each tap reads 1–25 ms of history.
+    This trades the phase vocoder's smoother sustain for a short, playful sound.
+    """
+
+    def __init__(self, semitones: float, sample_rate: float):
+        if not -12 <= semitones <= 12:
+            raise ValueError("Pitch must be between -12 and +12 semitones")
+        self.ratio = 2 ** (semitones / 12)
+        self.span = round(sample_rate * 0.024)
+        self.minimum = round(sample_rate * 0.001)
+        self.history = np.zeros(self.span + self.minimum + 2, dtype=np.float32)
+        self.phase = 0.0
+
+    def process(self, samples: np.ndarray) -> np.ndarray:
+        count = len(samples)
+        if not count:
+            return np.empty(0, dtype=np.float32)
+        joined = np.concatenate((self.history, samples))
+        positions = len(self.history) + np.arange(count)
+        step = (1 - self.ratio) / self.span
+        phase = (self.phase + np.arange(count) * step) % 1
+        other = (phase + 0.5) % 1
+        mix = np.sin(np.pi * phase) ** 2
+
+        def tap(delay):
+            indices = positions - self.minimum - self.span * delay
+            left = indices.astype(np.intp)
+            fraction = indices - left
+            return joined[left] * (1 - fraction) + joined[left + 1] * fraction
+
+        result = tap(phase) * mix + tap(other) * (1 - mix)
+        self.phase = (self.phase + count * step) % 1
+        self.history = joined[-len(self.history):].copy()
+        return result.astype(np.float32)
+
+
 class StreamingPitchShifter:
     WINDOW = 2048
     HOP = 256

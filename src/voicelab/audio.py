@@ -308,7 +308,7 @@ class AudioEngine:
                     continue
                 settings = self.settings
                 if settings != current:
-                    processor = VoiceProcessor(self.sample_rate, replace(settings, pitch=0) if neural else settings)
+                    processor = VoiceProcessor(self.sample_rate, replace(settings, pitch=0) if neural and not settings.quick_pitch else settings)
                     current = settings
                     if neural and not settings.enabled:
                         neural.reset()
@@ -319,7 +319,7 @@ class AudioEngine:
                 if pending is not None:
                     neural.select_voice(pending)
                     self.neural_voice = pending
-                converted = neural.process(block, settings.pitch) if neural and settings.enabled else block
+                converted = neural.process(block, 0 if settings.quick_pitch else settings.pitch) if neural and settings.enabled else block
                 result = processor.process(converted)
                 self.processing_ms = (time.perf_counter() - started) * 1000
                 self.stage_ms = dict(getattr(neural, "stage_ms", {})) if neural else {}

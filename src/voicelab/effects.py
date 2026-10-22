@@ -12,7 +12,7 @@ from pedalboard import (
     LowpassFilter, LowShelfFilter, PeakFilter, Pedalboard, Reverb,
 )
 
-from .pitch import StreamingPitchShifter
+from .pitch import QuickPitchShifter, StreamingPitchShifter
 from .presets import VoiceSettings
 
 BLOCK_SIZE = 1024
@@ -25,7 +25,8 @@ class VoiceProcessor:
         self.sample_rate = sample_rate
         self.settings = settings
         self.phase = 0
-        self.pitch_shifter = StreamingPitchShifter(settings.pitch) if settings.pitch else None
+        self.pitch_shifter = (QuickPitchShifter(settings.pitch, sample_rate) if settings.quick_pitch
+                              else StreamingPitchShifter(settings.pitch)) if settings.pitch else None
         plugins = []
         if settings.timbre:
             plugins.extend([
@@ -61,9 +62,13 @@ class VoiceProcessor:
             audio = self.pitch_shifter.process(audio)
         if self.settings.robot:
             t = (np.arange(audio.size) + self.phase) / self.sample_rate
-            modulation = np.sin(2 * math.pi * 75 * t)
+            modulation = np.sin(2 * math.pi * self.settings.robot_hz * t)
             mix = self.settings.robot
             audio *= (1 - mix) + mix * modulation
+        if self.settings.flutter:
+            # Fast amplitude flutter, with no extra delay line or lookahead.
+            t = (np.arange(audio.size) + self.phase) / self.sample_rate
+            audio *= 1 - self.settings.flutter * (0.5 + 0.5 * np.sin(2 * math.pi * 8 * t))
         self.phase = (self.phase + audio.size) % int(self.sample_rate)
         if len(self.board):
             audio = self.board(audio, self.sample_rate, reset=False)
@@ -86,7 +91,7 @@ def render_file(source: str | Path, destination: str | Path, settings: VoiceSett
             if hasattr(neural, "close"):
                 cleanup.callback(neural.close)
             block_size = AI_BLOCK_SIZE
-        processor = VoiceProcessor(incoming.samplerate, replace(settings, pitch=0) if neural else settings)
+        processor = VoiceProcessor(incoming.samplerate, replace(settings, pitch=0) if neural and not settings.quick_pitch else settings)
         with destination.open("xb") as handle:
             with sf.SoundFile(handle, mode="w", samplerate=incoming.samplerate,
                               channels=1, format="WAV", subtype="PCM_16") as outgoing:
@@ -94,7 +99,7 @@ def render_file(source: str | Path, destination: str | Path, settings: VoiceSett
                 for block in incoming.blocks(blocksize=block_size, dtype="float32", always_2d=True):
                     mono = block.mean(axis=1)
                     if neural:
-                        converted = neural.process(np.pad(mono, (0, block_size - len(mono))), settings.pitch)
+                        converted = neural.process(np.pad(mono, (0, block_size - len(mono))), 0 if settings.quick_pitch else settings.pitch)
                         mono = converted[:len(mono)]
                     result = processor.process(mono)
                     outgoing.write(result)
