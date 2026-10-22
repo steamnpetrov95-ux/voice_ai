@@ -39,7 +39,7 @@ jobs:
           $hostPython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov isolated SDK probe' -Direction Outbound -Program $hostPython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json
+            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json --probe-initialization
             if ($LASTEXITCODE -ne 0) { throw 'SDK metadata probe failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov isolated SDK probe'
