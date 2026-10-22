@@ -31,7 +31,7 @@ class Preset:
 
 
 PRESETS = (
-    Preset("clean", "Чистый голос", "ORIGINAL", "Ваш голос без изменения высоты.", "◉", VoiceSettings()),
+    Preset("clean", "Чистый голос", "ORIGINAL", "Без дополнительных эффектов, эквализации и компрессии.", "◉", VoiceSettings(clarity=0)),
     Preset("deep", "Низкий голос", "DEEP", "Глубокий тембр для спокойной подачи.", "↓", VoiceSettings(pitch=-4)),
     Preset("bright", "Высокий голос", "BRIGHT", "Лёгкое, высокое звучание.", "↑", VoiceSettings(pitch=4)),
     Preset("robot", "Робот", "SYNTH", "Металлический голос с кольцевой модуляцией.", "⊞", VoiceSettings(robot=0.85)),

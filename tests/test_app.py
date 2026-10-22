@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from voicelab import app as ui
 from voicelab.audio import Device
-from voicelab.presets import PRESETS, PRESET_BY_ID
+from voicelab.presets import PRESETS, PRESET_BY_ID, VoiceSettings
 
 
 @pytest.fixture(scope="module")
@@ -217,6 +217,59 @@ def test_cartoon_shortcut_cannot_interrupt_live_ai(window):
     assert not window.cartoon_button.isEnabled()
     window.open_cartoons()
     assert window.ai.active
+
+
+def test_clean_ai_removes_all_post_effects_without_bypassing_conversion(window):
+    window.select_preset(PRESET_BY_ID["monster"])
+    window.pitch_slider.setValue(-9)
+    window.room_slider.setValue(60)
+    window.gain_slider.setValue(10)
+    window.ai.mode.setCurrentIndex(0)
+    window.select_preset(PRESET_BY_ID["toon_alien"])
+    window.room_slider.setValue(70)
+    assert window.engine.settings == VoiceSettings(clarity=0)
+    assert window.engine.settings.enabled
+    assert not window.pitch_slider.isEnabled()
+    assert not window.room_slider.isEnabled()
+    assert not window.russian_speech.isEnabled()
+    window.clean_ai_check.setChecked(False)
+    assert window.engine.settings.robot == 0.6
+    assert window.pitch_slider.isEnabled()
+    window.bypass.setChecked(True)
+    window.clean_ai_button.click()
+    assert window.engine.settings == VoiceSettings(clarity=0)
+    assert window.ai.active and not window.bypass.isChecked()
+    assert window.selected.id == "clean"
+
+
+def test_clean_ai_preserves_selected_voice_and_can_reset_dsp_while_running(window, monkeypatch, tmp_path):
+    from voicelab import neural_ui
+    from voicelab.native import NativeVoice
+    voice = NativeVoice("native-" + "2" * 32, "Мой голос", tmp_path, 2)
+    monkeypatch.setattr(neural_ui, "installed_voices", lambda: [voice])
+    window.ai.reload(voice.id)
+    window.ai.mode.setCurrentIndex(0)
+    window.engine.neural_voice = voice
+    window.engine.running = True
+    window.set_running(True)
+    window.clean_ai_check.setChecked(False)
+    window.room_slider.setValue(60)
+    assert window.engine.settings.room == 0.6
+    window.clean_ai_button.click()
+    assert window.engine.running
+    assert window.ai.voice == voice and window.engine.neural_voice == voice
+    assert window.engine.settings == VoiceSettings(clarity=0)
+
+
+def test_clean_ai_choice_is_saved_without_changing_effect_mode(window):
+    from voicelab.settings import load_preferences
+    assert not window.ai.active
+    assert window.clean_ai_check.isHidden()
+    window.select_preset(PRESET_BY_ID["sakura"])
+    assert window.engine.settings.pitch == 6
+    window.clean_ai_check.setChecked(False)
+    window.close()
+    assert load_preferences()["clean_ai"] is False
 
 
 def test_ai_mode_does_not_present_effects_as_neural_voices(window):

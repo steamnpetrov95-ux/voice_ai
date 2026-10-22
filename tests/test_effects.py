@@ -35,6 +35,18 @@ def test_bypass_preserves_samples_even_with_effects_selected():
     np.testing.assert_array_equal(result, samples)
 
 
+def test_clean_preset_has_no_effects_or_added_tail(tmp_path):
+    from voicelab.presets import PRESET_BY_ID
+    samples = tone()
+    processor = VoiceProcessor(RATE, PRESET_BY_ID["clean"].settings)
+    assert processor.pitch_shifter is None and not len(processor.board)
+    np.testing.assert_array_equal(stream(processor, samples), samples)
+    source, target = tmp_path / "source.wav", tmp_path / "clean.wav"
+    sf.write(source, samples, RATE)
+    render_file(source, target, PRESET_BY_ID["clean"].settings)
+    assert sf.info(target).frames == sf.info(source).frames
+
+
 def test_pitch_changes_fundamental_frequency():
     samples = tone(220, 2)
     result = stream(VoiceProcessor(RATE, VoiceSettings(pitch=12, clarity=0)), samples)

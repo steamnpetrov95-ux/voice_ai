@@ -17,7 +17,7 @@ from . import APP_NAME, __version__
 from .avatars import avatar_icon
 from .effects import render_file
 from .neural_ui import NeuralPanel
-from .presets import CARTOON_PRESETS, CATEGORIES, PRESETS, PRESET_BY_ID
+from .presets import CARTOON_PRESETS, CATEGORIES, PRESETS, PRESET_BY_ID, VoiceSettings
 from .routing import is_virtual_input, is_virtual_output
 from .settings import load_preferences, save_preferences
 from .voice_roles import actor_roles, roles_caption, roles_description
@@ -209,8 +209,14 @@ class MainWindow(QMainWindow):
         voice_mode_row.addWidget(self.ai.mode, 1)
         voice_mode_row.addWidget(self.ai.add_button)
         left.addLayout(voice_mode_row)
-        self.cartoon_button = QPushButton("✦  Мультяшные стили · без AI")
-        self.cartoon_button.setToolTip("12 быстрых образов без загрузки моделей. Перед переходом из AI остановите микрофон.")
+        self.clean_ai_button = QPushButton("Чистый AI · без дополнительных эффектов")
+        self.clean_ai_button.setToolTip("Выбранная нейросетевая модель без сдвига высоты, эха, эквализации и модуляции. "
+                                        "Перед переходом из эффектов остановите микрофон.")
+        self.clean_ai_button.clicked.connect(self.open_clean_ai)
+        left.addWidget(self.clean_ai_button)
+        self.cartoon_button = QPushButton("Экспериментальные мульт-эффекты")
+        self.cartoon_button.setToolTip("Упрощённые DSP-эффекты. Возможны двоение, дребезг и металлическое звучание. "
+                                       "Это не нейросетевые голоса персонажей. Перед переходом из AI остановите микрофон.")
         self.cartoon_button.clicked.connect(self.open_cartoons)
         left.addWidget(self.cartoon_button)
         presets_header = QHBoxLayout()
@@ -326,6 +332,11 @@ class MainWindow(QMainWindow):
 
         effect_panel, effect_layout = panel()
         effect_layout.addWidget(label("Настрой свой звук", "section"))
+        self.clean_ai_check = QCheckBox("Чистый AI — без дополнительных эффектов")
+        self.clean_ai_check.setChecked(self.preferences.get("clean_ai", True) is not False)
+        self.clean_ai_check.setToolTip("Оставить только нейросетевую замену. Не удаляет шум, уже присутствующий в микрофоне или модели.")
+        self.clean_ai_check.toggled.connect(self.update_settings)
+        effect_layout.addWidget(self.clean_ai_check)
         self.pitch_slider, self.pitch_value = self.make_slider(effect_layout, "Высота голоса", -12, 12, "st")
         self.timbre_slider, self.timbre_value = self.make_slider(effect_layout, "Тембр: яркий ↔ тёплый", -100, 100, "%")
         self.clarity_slider, self.clarity_value = self.make_slider(effect_layout, "Разборчивость речи", 0, 6, "dB")
@@ -336,7 +347,7 @@ class MainWindow(QMainWindow):
         effect_layout.addWidget(self.russian_speech)
         self.room_slider, self.room_value = self.make_slider(effect_layout, "Пространство", 0, 80, "%")
         self.gain_slider, self.gain_value = self.make_slider(effect_layout, "Усиление", -18, 12, "dB")
-        self.bypass = QCheckBox("Отключить эффекты")
+        self.bypass = QCheckBox("Исходный микрофон — отключить обработку")
         self.bypass.toggled.connect(self.update_settings)
         effect_layout.addWidget(self.bypass)
         self.start_button = QPushButton("Включить микрофон")
@@ -498,6 +509,7 @@ class MainWindow(QMainWindow):
         if self.ai.active and not self._previous_ai_active:
             self.select_preset(PRESETS[0])
         self._previous_ai_active = self.ai.active
+        self.update_settings()
         self.filter_presets()
         if self.ai.active:
             if self.ai.voice:
@@ -548,17 +560,35 @@ class MainWindow(QMainWindow):
         self.category_combo.setCurrentText("Мультяшные")
         self.select_preset(CARTOON_PRESETS[0])
 
+    def open_clean_ai(self):
+        if self._render_thread is not None or (self.engine.running and not self.ai.active):
+            return
+        self.ai.mode.setCurrentIndex(self.ai.mode.findData("ai"))
+        self.search.clear()
+        self.bypass.setChecked(False)
+        self.clean_ai_check.setChecked(True)
+        self.select_preset(PRESET_BY_ID["clean"])
+        self.ai_changed()
+
     def update_settings(self, *args):
         settings = replace(self.selected.settings, pitch=self.pitch_slider.value(),
                            timbre=self.timbre_slider.value() / 100,
                            clarity=self.clarity_slider.value() if self.russian_speech.isChecked() else 0,
                            room=self.room_slider.value() / 100, gain=self.gain_slider.value(),
                            enabled=not self.bypass.isChecked())
+        clean_ai = self.ai.active and self.clean_ai_check.isChecked()
+        if clean_ai:
+            # Keep the neural conversion enabled; remove only our post-effects.
+            settings = VoiceSettings(clarity=0, enabled=not self.bypass.isChecked())
         self.engine.configure(settings)
+        self.clean_ai_check.setVisible(self.ai.active)
+        for widget in (self.pitch_slider, self.timbre_slider, self.room_slider,
+                       self.gain_slider, self.russian_speech):
+            widget.setEnabled(not clean_ai)
         self.pitch_value.setText(f"{settings.pitch:+.0f} st")
         self.timbre_value.setText(f"{settings.timbre * 100:+.0f} %")
         self.clarity_value.setText(f"{settings.clarity:.0f} dB")
-        self.clarity_slider.setEnabled(self.russian_speech.isChecked())
+        self.clarity_slider.setEnabled(not clean_ai and self.russian_speech.isChecked())
         self.room_value.setText(f"{settings.room * 100:.0f} %")
         self.gain_value.setText(f"{settings.gain:+.0f} dB")
 
@@ -655,6 +685,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Не удалось включить микрофон", str(exc))
 
     def set_running(self, running):
+        self.clean_ai_button.setEnabled(self._render_thread is None and (not running or self.ai.active))
         self.cartoon_button.setEnabled(self._render_thread is None and (not running or not self.ai.active))
         live_switch = running and getattr(self.engine.neural_voice, "backend", "rvc") == "native"
         self.ai.set_running(running, allow_voice_switch=live_switch)
@@ -808,7 +839,7 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "Как пользоваться", (
-            "Выберите режим «AI — замена голоса нейросетью» и карточку голоса. "
+            "Нажмите «Чистый AI · без дополнительных эффектов» и выберите карточку голоса. "
             "Дождитесь загрузки модели после включения микрофона. "
             "Если звук прерывается, остановите микрофон и увеличьте буфер AI в настройках справа.\n\n"
             f"1. В {APP_NAME} выберите режим «Виртуальный микрофон» и ваш физический микрофон.\n\n"
@@ -821,7 +852,9 @@ class MainWindow(QMainWindow):
             "Используйте наушники, чтобы избежать эха.\n\n"
             "Для прослушивания без драйвера есть режим «Только наушники — без драйвера». "
             "Обработанный голос также можно записать в WAV или применить эффекты к готовому файлу.\n\n"
-            "Это локальные DSP-эффекты, а не нейросетевое клонирование голоса."
+            "В AI-режиме звучание задаётся нейросетевой моделью. Чистый AI отключает дополнительные DSP-эффекты; "
+            "он не удаляет шум из микрофона или артефакты модели. Экспериментальные мульт-эффекты "
+            "могут давать двоение и металлическую окраску и не являются голосами конкретных персонажей."
         ))
 
     def install_virtual_microphone(self):
@@ -847,7 +880,8 @@ class MainWindow(QMainWindow):
         self.timer.stop()
         self.engine.stop()
         try:
-            save_preferences({**self.ai.settings(), "preset": self.selected.id, "input": self.input_combo.currentText(),
+            save_preferences({**self.ai.settings(), "clean_ai": self.clean_ai_check.isChecked(),
+                              "preset": self.selected.id, "input": self.input_combo.currentText(),
                               "output": self.output_combo.currentText(),
                               "routing": self.routing_combo.currentData(),
                               "monitor_output": self.monitor_combo.currentText(),
