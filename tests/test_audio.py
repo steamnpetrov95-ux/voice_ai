@@ -197,6 +197,51 @@ def test_native_capture_discards_partial_audio_from_model_loading():
     assert engine._in_queue.empty()
 
 
+@pytest.mark.parametrize("milliseconds", [40, 80])
+@pytest.mark.parametrize("burst_ticks", [7, 8])
+def test_short_native_stream_bridges_70_to_80_ms_inference_bursts(devices, monkeypatch, milliseconds, burst_ticks):
+    """Virtual 10 ms driver clock: a costly SDK call every 160 ms of input."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(audio.AudioEngine, "_process", lambda self: None)
+    engine = audio.AudioEngine()
+    engine.configure_neural(SimpleNamespace(backend="native", name="Native"), buffer_ms=milliseconds)
+    engine.start(0, 1)
+    engine.loading = False
+    engine.start_monitoring(2)
+    processed, task, output = 0, None, []
+    source = (np.arange(400 * 480, dtype=np.float32) + 1) / (400 * 480)
+    try:
+        for tick in range(400):
+            if task is not None and task[0] <= tick:
+                engine._offer(engine._out_queue, task[1])
+                engine._offer(engine._monitor_queue, task[1], count_dropouts=False)
+                task = None
+            incoming = source[tick * 480:(tick + 1) * 480, None]
+            engine._capture(incoming, 480, None, False)
+            while task is None and not engine._in_queue.empty():
+                block = engine._in_queue.get_nowait()
+                processed += 1
+                if processed * milliseconds % 160 == 0:
+                    task = (tick + burst_ticks, block)
+                else:
+                    engine._offer(engine._out_queue, block)
+                    engine._offer(engine._monitor_queue, block, count_dropouts=False)
+            primary, monitor = np.zeros((480, 2), np.float32), np.zeros((480, 2), np.float32)
+            engine._play(primary, 480, None, False)
+            engine._monitor.kwargs["callback"](monitor, 480, None, False)
+            np.testing.assert_array_equal(primary, monitor)
+            output.append(primary[:, 0])
+        result = np.concatenate(output)
+        # Initial buffering may produce silence; no samples may be lost,
+        # reordered, or repeated when the worker catches up after a burst.
+        audible = result[result > 0]
+        np.testing.assert_array_equal(audible, source[:len(audible)])
+        assert (result[24000:] > 0).all()
+    finally:
+        engine.stop()
+
+
 def test_recording_requires_running_engine(tmp_path):
     with pytest.raises(RuntimeError):
         audio.AudioEngine().start_recording(tmp_path / "test.wav")
