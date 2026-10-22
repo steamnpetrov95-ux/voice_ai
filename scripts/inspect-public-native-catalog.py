@@ -30,10 +30,9 @@ def inspect(url):
         urls, records = set(), []
 
         def walk(value, inherited=""):
-
             if isinstance(value, dict):
                 name = value.get("name") or value.get("displayName") or value.get("speakerName") or inherited
-                if isinstance(name, str):
+                if isinstance(name, str) and name:
                     fields = ("id", "name", "displayName", "localFileName", "fileName", "url", "modelUrl", "speakerId", "groupModelId", "binFileIds", "fileKey", "localPath")
                     record = {key: value[key] for key in fields if key in value and isinstance(value[key], (str, int, list))}
                     record["name"] = name
@@ -44,7 +43,7 @@ def inspect(url):
                     walk(item, name if isinstance(name, str) else inherited)
             elif isinstance(value, list):
                 for item in value:
-                    walk(item, name if isinstance(name, str) else inherited)
+                    walk(item, inherited)
             elif isinstance(value, str) and value.startswith("https://"):
                 parts = urllib.parse.urlsplit(value)
                 urls.add(urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")))
