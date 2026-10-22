@@ -125,6 +125,23 @@ def inspect_loaded(path, initialization=None, speech=None):
                             started = time.perf_counter()
                             result["select_voice_code"] = method(0x18, ctypes.c_int, ctypes.c_int64)(instance, 1)
                             result["select_voice_ms"] = round((time.perf_counter() - started) * 1000)
+                            if initialization == "210":
+                                # This string method is used by the original client
+                                # for incoming data. Probe only metadata from the
+                                # supplied profile, not account or network data.
+                                decoded_pointer = method(0x78, ctypes.c_void_p, ctypes.c_char_p)(instance, small[0].read_bytes())
+                                if decoded_pointer:
+                                    decoded_buffer = ctypes.create_string_buffer(16384)
+                                    decoded_count = ctypes.c_size_t()
+                                    kernel.ReadProcessMemory(process, decoded_pointer, decoded_buffer, len(decoded_buffer), ctypes.byref(decoded_count))
+                                    try:
+                                        value = json.loads(decoded_buffer.raw[:decoded_count.value].split(b"\0")[0])
+                                        if isinstance(value, dict):
+                                            result["profile_metadata_keys"] = sorted(value)
+                                            result["profile_display_metadata"] = {key: value[key] for key in ("name", "id", "speakerId", "type")
+                                                                                  if key in value and isinstance(value[key], (str, int))}
+                                    except (UnicodeDecodeError, json.JSONDecodeError):
+                                        result["profile_metadata_decoded_as_json"] = False
                             if result["select_voice_code"] == 10000 and speech:
                                 # Same scalar toggle and in-place PCM16 call seen in
                                 # the original client; no authentication branches are patched.
@@ -154,6 +171,13 @@ def inspect_loaded(path, initialization=None, speech=None):
                                 result["block_ms"] = 160
                                 result["median_process_ms"] = round(statistics.median(durations[2:]), 2)
                                 result["max_process_ms"] = round(max(durations), 2)
+                                if initialization == "210":
+                                    destination = speech.parent / "sdk-reference-output.wav"
+                                    with wave.open(str(destination), "wb") as output_wave:
+                                        output_wave.setnchannels(1)
+                                        output_wave.setsampwidth(2)
+                                        output_wave.setframerate(48000)
+                                        output_wave.writeframes(output)
     directory.close()
     return result
 

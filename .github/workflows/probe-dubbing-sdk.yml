@@ -49,4 +49,6 @@ jobs:
         with:
           name: native-sdk-metadata
           retention-days: 3
-          path: .analysis/sdk-probe.json
+          path: |
+            .analysis/sdk-probe.json
+            .analysis/sdk-reference-output.wav
