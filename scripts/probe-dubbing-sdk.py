@@ -140,12 +140,20 @@ def main():
             if initialization is not None:
                 command.extend(["--initialization", initialization])
             child = subprocess.run(command, env=environment,
-                                   capture_output=True, text=True, timeout=45)
+                                   capture_output=True, text=True, errors="replace", timeout=45)
             if child.returncode:
                 result = {"name": name, "status": "child_failed", "exit_code": child.returncode,
                           "stderr": child.stderr[-1200:]}
             else:
-                result = json.loads(child.stdout.strip().splitlines()[-1])
+                result = {"name": name, "status": "no_structured_output"}
+                for line in reversed(child.stdout.splitlines()):
+                    try:
+                        value = json.loads(line)
+                        if isinstance(value, dict) and value.get("name") == name:
+                            result = value
+                            break
+                    except json.JSONDecodeError:
+                        pass
         except subprocess.TimeoutExpired:
             result = {"name": name, "status": "timeout", "timeout_seconds": 45}
         if initialization is not None:
