@@ -244,7 +244,11 @@ class NativeConverter:
             raise ValueError("Некорректный входной звук.")
         pcm = np.clip(np.rint(incoming * 32768), -32768, 32767).astype(np.int16)
         started = time.perf_counter()
-        self.runtime.process(pcm)
+        # The reference client submits at most 160 ms per SDK call. Larger
+        # application buffers must not exceed the native scratch allocation.
+        quantum = max(1, int(self.sample_rate * 0.160))
+        for offset in range(0, len(pcm), quantum):
+            self.runtime.process(pcm[offset:offset + quantum])
         self.stage_ms = {"native": (time.perf_counter() - started) * 1000}
         output = pcm.astype(np.float32) / 32768
         if pitch_shift != self.pitch_shift:

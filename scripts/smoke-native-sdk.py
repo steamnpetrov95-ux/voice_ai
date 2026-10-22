@@ -68,6 +68,7 @@ def main():
                 converter.close()
         timings, details = [], []
         for sample_rate, count in ((48000, 7680), (48000, 15360), (48000, 23040), (48000, 30720), (44100, 7040)):
+            print(f"Checking {sample_rate} Hz, {count} frames", flush=True)
             converter = NativeConverter(voices[0], sample_rate)
             incoming = resample(samples, 48000, sample_rate)
             outputs, durations = [], []
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
+        print("::error title=Native voice validation failed::" + repr(exc), flush=True)
         import traceback
         traceback.print_exc()
-        print("::error title=Native voice validation failed::" + str(exc).replace("%", "%25").replace("\n", "%0A"), flush=True)
         raise

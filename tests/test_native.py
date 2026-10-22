@@ -87,7 +87,7 @@ def test_native_catalog_rejects_path_outside_pack(library):
     assert native.installed_native_voices() == []
 
 
-@pytest.mark.parametrize("rate,count", [(48000, 480), (48000, 7680), (44100, 7040)])
+@pytest.mark.parametrize("rate,count", [(48000, 480), (48000, 7680), (48000, 30720), (44100, 7040)])
 def test_native_pcm_protocol_and_output_length(library, runtime, rate, count):
     from voicelab.neural import create_converter
     voice = native.installed_native_voices()[1]
@@ -97,6 +97,7 @@ def test_native_pcm_protocol_and_output_length(library, runtime, rate, count):
         result = converter.process(samples)
         np.testing.assert_allclose(result, -samples, atol=5e-5)
         assert result.shape == samples.shape and result.dtype == np.float32
+        assert max(map(len, runtime.instances[-1].processed)) <= int(rate * 0.160)
         assert runtime.instances[-1].rate == rate
         assert runtime.instances[-1].selected == 2
         assert [item["bid"] for item in runtime.instances[-1].binaries] == [1, 2, 3]
