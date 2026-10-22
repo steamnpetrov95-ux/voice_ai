@@ -70,7 +70,7 @@ jobs:
           $nativePython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov native validation' -Direction Outbound -Program $nativePython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav
+            python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav --stream-seconds 65
             if ($LASTEXITCODE -ne 0) { throw 'Native profile validation failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov native validation'
@@ -110,7 +110,9 @@ jobs:
         shell: pwsh
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP 'VoiceLab-installed'
-          $installer = Start-Process -FilePath dist/installer/VoiceLab-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/TASKS=desktopicon,neuralvoices', "/DIR=$installDir" -Wait -PassThru
+          $installTasks = 'desktopicon'
+          if (Test-Path dist/neural-models/SOURCES.json) { $installTasks += ',neuralvoices' }
+          $installer = Start-Process -FilePath dist/installer/VoiceLab-Setup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/TASKS=$installTasks", "/DIR=$installDir" -Wait -PassThru
           if ($installer.ExitCode -ne 0) { throw "Install failed: $($installer.ExitCode)" }
           $app = Join-Path $installDir 'VoiceLab.exe'
           if (-not (Test-Path $app)) { throw 'Installed application is missing' }

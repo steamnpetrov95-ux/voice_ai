@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import json
+import math
 import os
 from pathlib import Path
 import statistics
@@ -42,6 +43,7 @@ def main():
     parser.add_argument("--app", type=Path)
     parser.add_argument("--output", type=Path, default=Path("dist/native-benchmark.json"))
     parser.add_argument("--skip-catalogue", action="store_true")
+    parser.add_argument("--stream-seconds", type=int, default=0)
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     os.environ["VOICELAB_NATIVE_DIR"] = str(args.models.resolve())
@@ -91,6 +93,29 @@ def main():
                     sf.write(args.output.with_name("native-reference.wav"), converted, sample_rate)
             finally:
                 converter.close()
+        stream = None
+        if args.stream_seconds:
+            converter = NativeConverter(voices[0], 48000)
+            started = time.perf_counter()
+            before = memory_mb()
+            durations = []
+            try:
+                for index in range(math.ceil(args.stream_seconds / 0.160)):
+                    if index and index % 100 == 0:
+                        converter.select_voice(voices[(index * 3) % len(voices)])
+                    offset = (index * 7680) % len(samples)
+                    block = np.pad(samples[offset:offset + 7680], (0, max(0, offset + 7680 - len(samples))))
+                    block_start = time.perf_counter()
+                    output = converter.process(block)
+                    durations.append((time.perf_counter() - block_start) * 1000)
+                    assert len(output) == 7680 and np.isfinite(output).all()
+                    deadline = started + (index + 1) * 0.160
+                    time.sleep(max(0, deadline - time.perf_counter()))
+                stream = {"seconds": args.stream_seconds, "blocks": len(durations),
+                          "p95_ms": round(float(np.percentile(durations, 95)), 2),
+                          "start_working_mb": before["working_mb"], "end_working_mb": memory_mb()["working_mb"]}
+            finally:
+                converter.close()
         if args.app:
             # Ensure a user-side source override cannot hide a packaged path bug.
             environment = dict(os.environ)
@@ -106,7 +131,8 @@ def main():
                 assert rate == 48000 and len(data) == len(samples) and np.max(np.abs(data)) > 1e-4
         report = {"note": "Native SDK Windows CI CPU measurements, not the user's i7-2600.",
                   "profiles": len(voices), "named_profiles": sum(not v.name.startswith("AI-голос ") for v in voices), "provider": "Native CPU", "block_ms": 160,
-                  "median_ms": round(statistics.median(timings), 2), "blocks": details, **memory_mb()}
+                  "median_ms": round(statistics.median(timings), 2), "blocks": details,
+                  "live_stream": stream, **memory_mb()}
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print("::notice title=Native voice validation::" + json.dumps(report), flush=True)
