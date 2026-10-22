@@ -102,6 +102,8 @@ def rename_native_voice(voice, name):
 
 _engine_lock = threading.Lock()
 _libraries = {}
+_instances = {}
+_initializations = {}
 
 
 def _trace(message):
@@ -134,8 +136,11 @@ class NativeRuntime:
             factory.argtypes, factory.restype = [], ctypes.c_void_p
             _libraries[key] = (directory, library, factory)
         self.library = _libraries[key]
-        _trace("Calling factory")
-        self.instance = self.library[2]()
+        self.key = key
+        if key not in _instances:
+            _trace("Calling factory")
+            _instances[key] = self.library[2]()
+        self.instance = _instances[key]
         if not self.instance:
             raise RuntimeError("Нативный движок не создал экземпляр.")
         self.table = ctypes.cast(self.instance, ctypes.POINTER(ctypes.c_void_p))[0]
@@ -146,8 +151,14 @@ class NativeRuntime:
         return ctypes.CFUNCTYPE(result, ctypes.c_void_p, *arguments)(address)
 
     def initialize(self, binaries, speakers, rate):
-        return self._method(8, ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int)(
-            self.instance, json.dumps(binaries).encode(), json.dumps(speakers).encode(), rate, rate)
+        configuration = (json.dumps(binaries).encode(), json.dumps(speakers).encode(), rate)
+        if _initializations.get(self.key) == configuration:
+            return 10000
+        code = self._method(8, ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int)(
+            self.instance, configuration[0], configuration[1], rate, rate)
+        if code == 10000:
+            _initializations[self.key] = configuration
+        return code
 
     def select(self, identifier):
         return self._method(0x18, ctypes.c_int, ctypes.c_int64)(self.instance, identifier)
@@ -162,7 +173,9 @@ class NativeRuntime:
         self._method(0x20, None)(self.instance)
 
     def close(self):
-        self._method(0x10, None)(self.instance)
+        # Slot 0x10 destroys the SDK singleton; its factory cannot recreate it.
+        # Keep the shared models for this process and reset only stream state.
+        self.reset()
 
 
 class NativeConverter:

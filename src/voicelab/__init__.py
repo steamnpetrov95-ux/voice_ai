@@ -1,4 +1,4 @@
-"""VoiceLab: local microphone effects. No cloud services or model downloads."""
+"""VoiceLab: local voice conversion, microphone effects, and audio routing."""
 
 APP_NAME = "npetrov VoiceLab"
-__version__ = "0.2.2"
+__version__ = "0.3.0"
