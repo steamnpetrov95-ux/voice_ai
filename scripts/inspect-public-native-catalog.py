@@ -13,10 +13,13 @@ HOSTS = ("a1.dubbingai.io", "a2.dubbingai.io", "a3.dubbingai.io",
          "a1.dubbing-ai.com", "a2.dubbing-ai.com", "a3.dubbing-ai.com")
 
 
-def inspect(url):
-    result = {"url": url}
+def inspect(target):
+    url, method = target
+    result = {"url": url, "method": method}
     try:
-        with urllib.request.urlopen(url, timeout=12) as response:
+        request = urllib.request.Request(url, data=b"{}" if method == "POST" else None,
+                                         headers={"Content-Type": "application/json"}, method=method)
+        with urllib.request.urlopen(request, timeout=12) as response:
             raw = response.read(8 * 1024 * 1024 + 1)
             result.update(status=response.status, bytes=len(raw), content_type=response.headers.get("Content-Type"))
         if len(raw) > 8 * 1024 * 1024:
@@ -26,9 +29,10 @@ def inspect(url):
         except (ValueError, UnicodeDecodeError):
             result["format"] = "non-JSON"
             return result
-        if isinstance(data, dict) and data.get("data") is None:
+        if isinstance(data, dict) and "code" in data:
             result["api_code"] = data.get("code")
             result["api_message"] = str(data.get("msg", ""))[:200]
+            result["data_type"] = type(data.get("data")).__name__
         result["shape"] = list(data)[:100] if isinstance(data, dict) else {"type": type(data).__name__, "length": len(data)}
         urls, records = set(), []
 
@@ -61,9 +65,8 @@ def inspect(url):
 
 
 if __name__ == "__main__":
-    targets = ["https://d" + number + ".dubbing-ai.com/rvc-client/assets/config.json" for number in ("1", "2", "6")]
-    targets += ["https://" + host + "/api/rvc/getAllSpeakers" for host in ("console.dubbing-ai.com", "www.dubbing-ai.com")]
-    targets += ["https://console.dubbing-ai.com/api/rvc/getAliasSpeakers", "https://console.dubbing-ai.com/api/rvc/getSquareSpeakers"]
+    targets = [("https://console.dubbing-ai.com/api/rvc/" + route, method)
+               for route in ("getAllSpeakers", "getAliasSpeakers", "getGlobalInfo") for method in ("GET", "POST")]
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(inspect, targets))
     Path("public-native-catalog.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
