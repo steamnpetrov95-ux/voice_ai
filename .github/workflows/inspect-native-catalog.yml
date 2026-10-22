@@ -1,0 +1,30 @@
+name: Inspect public native voice names
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  catalogue:
+    if: github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+    runs-on: windows-latest
+    timeout-minutes: 4
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read anonymous public bootstrap and voice metadata
+        run: python scripts/inspect-public-native-catalog.py
+      - name: Save sanitized research metadata beside the supplied installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload forai public-native-catalog.json --clobber
