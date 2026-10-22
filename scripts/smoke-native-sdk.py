@@ -6,9 +6,11 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import statistics
 import subprocess
 import tempfile
+import threading
 import time
 import urllib.request
 
@@ -17,6 +19,50 @@ import soundfile as sf
 
 from voicelab.native import NativeConverter, installed_native_voices
 from voicelab.neural import resample
+
+
+def threaded_route(voices, samples):
+    """Exercise the actual audio worker and monitor fanout with Qt loaded."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    from voicelab.audio import AudioEngine
+    from voicelab.presets import VoiceSettings
+
+    application = QApplication.instance() or QApplication([])
+    engine = AudioEngine()
+    engine.configure_neural(voices[0], buffer_ms=160)
+    engine.configure(VoiceSettings(clarity=0))
+    engine.running, engine.loading = True, True
+    engine._output = object()
+    engine._monitor_queue = queue.Queue(2)
+    worker = threading.Thread(target=engine._process)
+    worker.start()
+    peak = 0
+    try:
+        deadline = time.monotonic() + 15
+        while engine.loading and time.monotonic() < deadline:
+            application.processEvents()
+            time.sleep(0.01)
+        assert not engine.loading and not engine.error, engine.error
+        for index, offset in enumerate(range(0, len(samples), 7680)):
+            if index in (5, 10, 15):
+                engine.switch_native_voice(voices[index * 60])
+            block = samples[offset:offset + 7680]
+            engine._in_queue.put(np.pad(block, (0, 7680 - len(block))))
+            primary = engine._out_queue.get(timeout=5)
+            monitor = engine._monitor_queue.get(timeout=5)
+            np.testing.assert_array_equal(primary, monitor)
+            assert len(primary) == 7680 and np.isfinite(primary).all()
+            peak = max(peak, float(np.max(np.abs(primary))))
+            application.processEvents()
+        assert peak > 1e-4 and not engine.error, engine.error
+        assert engine.neural_voice.id == voices[900].id
+    finally:
+        engine._stop.set()
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert not engine.error, engine.error
+    print("::notice title=Native audio worker::Real SDK, Qt, live voice switching, primary output and monitor passed.", flush=True)
 
 
 def memory_mb():
@@ -59,6 +105,7 @@ def main():
                 speech.write_bytes(source.read(4 * 1024 * 1024))
         samples, rate = sf.read(speech, dtype="float32", always_2d=True)
         samples = resample(samples.mean(axis=1), rate, 48000)
+        threaded_route(voices, samples)
         if not args.skip_catalogue:
             converter = NativeConverter(voices[0], 48000)
             try:
