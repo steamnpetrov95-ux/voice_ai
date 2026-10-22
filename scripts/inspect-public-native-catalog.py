@@ -9,10 +9,6 @@ import urllib.parse
 import urllib.request
 
 
-HOSTS = ("a1.dubbingai.io", "a2.dubbingai.io", "a3.dubbingai.io",
-         "a1.dubbing-ai.com", "a2.dubbing-ai.com", "a3.dubbing-ai.com")
-
-
 def inspect(target):
     url, method = target
     result = {"url": url, "method": method}
