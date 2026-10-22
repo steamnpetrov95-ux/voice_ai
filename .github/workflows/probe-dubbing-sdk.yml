@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
       - name: Download the user-supplied installer and the extraction tool
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,13 +37,25 @@ jobs:
           & .analysis/tool/unpacked/innoextract.exe --extract --silent --output-dir .analysis/extracted $installer
           if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
           Invoke-WebRequest 'https://raw.githubusercontent.com/dev6699/rvc-onnx/9d20b0ff54df72e83c2826e76c2e1eff5f1ab824/assets/input_1.wav' -OutFile .analysis/speech.wav
+          python scripts/fetch-native-catalog.py --profiles .analysis/extracted/app/vc_model --output .analysis/catalog.json
+      - name: Install and prepare the compatibility backend
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Dependencies failed' }
+          python -m pip install --no-deps --no-build-isolation -e .
+          if ($LASTEXITCODE -ne 0) { throw 'Application installation failed' }
+          python scripts/prepare-native-sdk.py --source .analysis/extracted/app --catalog .analysis/catalog.json
+          if ($LASTEXITCODE -ne 0) { throw 'Native model preparation failed' }
       - name: Probe the SDK loader and public factory with networking blocked
         run: |
           $hostPython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov isolated SDK probe' -Direction Outbound -Program $hostPython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json --probe-initialization --speech .analysis/speech.wav
+            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json
             if ($LASTEXITCODE -ne 0) { throw 'SDK metadata probe failed' }
+            python scripts/smoke-native-sdk.py --models dist/native-sdk --speech .analysis/speech.wav
+            if ($LASTEXITCODE -ne 0) { throw 'Native backend validation failed' }
+            python -c "import json; print('::warning title=Native backend validation::'+json.dumps(json.load(open('dist/native-benchmark.json'))))"
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov isolated SDK probe'
           }
@@ -52,3 +66,5 @@ jobs:
           path: |
             .analysis/sdk-probe.json
             .analysis/sdk-reference-output.wav
+            dist/native-benchmark.json
+            dist/native-reference.wav

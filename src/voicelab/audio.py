@@ -221,12 +221,13 @@ class AudioEngine:
     def _process(self):
         processor = None
         current = None
+        neural = None
         try:
-            neural = None
             if self.neural_voice:
-                from .neural import NeuralConverter
-                neural = NeuralConverter(self.neural_voice, self.sample_rate, self.neural_provider, self.neural_profile)
-                self.provider_label = "DirectML (GPU)" if neural.provider == "DmlExecutionProvider" else "CPU"
+                from .neural import create_converter
+                neural = create_converter(self.neural_voice, self.sample_rate, self.neural_provider, self.neural_profile)
+                self.provider_label = {"DmlExecutionProvider": "DirectML (GPU)",
+                                       "NativeCPUExecutionProvider": "Native CPU"}.get(neural.provider, "CPU")
                 # Audio captured while loading a model must never replay later.
                 while not self._in_queue.empty():
                     try:
@@ -276,6 +277,12 @@ class AudioEngine:
             self._stop.set()
         finally:
             self.loading = False
+            if neural is not None and hasattr(neural, "close"):
+                try:
+                    neural.close()
+                except Exception as exc:
+                    if not self.error:
+                        self.error = f"Остановка нативного движка: {exc}"
 
     def start_recording(self, path: str | Path):
         if not self.running or self._stop.is_set() or self.loading:

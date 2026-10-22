@@ -151,6 +151,8 @@ class MainWindow(QMainWindow):
         self.preferences = load_preferences()
         self.ai = NeuralPanel(self.preferences)
         self.ai_buttons = {}
+        self._voice_page = 0
+        self._voice_query = None
         self._previous_ai_active = self.ai.active
         self.selected = PRESET_BY_ID.get(self.preferences.get("preset"), PRESETS[0])
         if self.ai.active and self.preferences.get("voice_mode") != "ai":
@@ -250,6 +252,16 @@ class MainWindow(QMainWindow):
             self.preset_grid.addWidget(button, index // 4, index % 4)
         catalog_scroll.setWidget(catalog)
         left.addWidget(catalog_scroll, 1)
+        page_row = QHBoxLayout()
+        self.previous_voices = QPushButton("← Назад")
+        self.previous_voices.clicked.connect(lambda: self.change_voice_page(-1))
+        self.next_voices = QPushButton("Далее →")
+        self.next_voices.clicked.connect(lambda: self.change_voice_page(1))
+        self.voice_page_label = label("", "small")
+        page_row.addWidget(self.previous_voices)
+        page_row.addWidget(self.voice_page_label, 1)
+        page_row.addWidget(self.next_voices)
+        left.addLayout(page_row)
         self.empty_label = label("Голоса не найдены. Попробуйте другой запрос.", "muted")
         self.empty_label.hide()
         left.addWidget(self.empty_label)
@@ -392,6 +404,9 @@ class MainWindow(QMainWindow):
 
     def filter_presets(self, *args):
         query = self.search.text().strip().casefold().replace("ё", "е")
+        if query != self._voice_query:
+            self._voice_page = 0
+            self._voice_query = query
         category = self.category_combo.currentText()
         visible = 0
         self.category_combo.setEnabled(not self.ai.active)
@@ -404,7 +419,24 @@ class MainWindow(QMainWindow):
             for button in self.preset_buttons.values():
                 self.preset_grid.removeWidget(button)
                 button.hide()
-            for voice in self.ai.voices:
+            matches = [voice for voice in self.ai.voices
+                       if query in f"{voice.name} {roles_description(voice.name)}".casefold().replace("ё", "е")]
+            page_count = max(1, (len(matches) + 39) // 40)
+            self._voice_page = min(self._voice_page, page_count - 1)
+            page = matches[self._voice_page * 40:(self._voice_page + 1) * 40]
+            if len(self.ai.voices) > 40:
+                keys = {voice.id for voice in page}
+                for key, button in list(self.ai_buttons.items()):
+                    if key not in keys:
+                        button.deleteLater()
+                        del self.ai_buttons[key]
+            self.previous_voices.setVisible(page_count > 1)
+            self.next_voices.setVisible(page_count > 1)
+            self.voice_page_label.setVisible(page_count > 1)
+            self.previous_voices.setEnabled(self._voice_page > 0)
+            self.next_voices.setEnabled(self._voice_page + 1 < page_count)
+            self.voice_page_label.setText(f"Страница {self._voice_page + 1} / {page_count}")
+            for voice in page:
                 button = self.ai_buttons.get(voice.id)
                 if button is None:
                     button = QToolButton()
@@ -422,15 +454,16 @@ class MainWindow(QMainWindow):
                 button.setMinimumHeight(180 if roles else 140)
                 button.setToolTip(f"Нейросетевая модель: {voice.name}\n{roles_description(voice.name)}\n{voice.credit}".strip())
                 button.setChecked(self.ai.voice is not None and voice.id == self.ai.voice.id)
-                matches = query in f"{voice.name} {roles_description(voice.name)}".casefold().replace("ё", "е")
-                button.setVisible(matches)
-                if matches:
-                    self.preset_grid.addWidget(button, visible // 4, visible % 4)
-                    visible += 1
-            self.voice_count.setText(f"{visible} AI-ГОЛОСОВ")
+                button.setEnabled(not self.engine.running and self._render_thread is None)
+                button.setVisible(True)
+                self.preset_grid.addWidget(button, visible // 4, visible % 4)
+                visible += 1
+            self.voice_count.setText(f"{len(matches)} AI-ГОЛОСОВ")
             self.empty_label.setText("Добавьте модель AI-голоса кнопкой справа." if not self.ai.voices else "Голоса не найдены.")
             self.empty_label.setVisible(visible == 0)
             return
+        for widget in (self.previous_voices, self.next_voices, self.voice_page_label):
+            widget.hide()
         self.catalog_title.setText("Эффекты голоса")
         for preset in PRESETS:
             button = self.preset_buttons[preset.id]
@@ -445,6 +478,10 @@ class MainWindow(QMainWindow):
         self.voice_count.setText(f"{visible} / {len(PRESETS)} ЭФФЕКТОВ")
         self.empty_label.setText("Эффекты не найдены. Попробуйте другой запрос.")
         self.empty_label.setVisible(visible == 0)
+
+    def change_voice_page(self, delta):
+        self._voice_page = max(0, self._voice_page + delta)
+        self.filter_presets()
 
     def ai_changed(self):
         if self.ai.active and not self._previous_ai_active:
@@ -699,9 +736,10 @@ class MainWindow(QMainWindow):
             elif self.engine.neural_voice:
                 self.status.setText(f"●  AI: {self.engine.neural_voice.name.split(' — ')[0]}")
                 duration = self.engine.block_size * 1000 / self.engine.sample_rate
-                profile = "лёгкий AI" if self.engine.neural_profile == "light" else "полный AI"
+                profile = ("нативный AI" if getattr(self.engine.neural_voice, "backend", "rvc") == "native"
+                           else "лёгкий AI" if self.engine.neural_profile == "light" else "полный AI")
                 self.rate_label.setText(f"{self.engine.provider_label} · {profile} · {self.engine.processing_ms:.0f} мс / блок {duration:.0f} мс")
-                names = {"encoder": "Анализ речи", "pitch": "Высота голоса", "voice": "Модель голоса", "decoder": "Синтез"}
+                names = {"encoder": "Анализ речи", "pitch": "Высота голоса", "voice": "Модель голоса", "decoder": "Синтез", "native": "Нативный движок"}
                 self.rate_label.setToolTip("\n".join(f"{names.get(key, key)}: {value:.0f} мс" for key, value in self.engine.stage_ms.items()))
         if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
             self.monitor_check.setChecked(False)

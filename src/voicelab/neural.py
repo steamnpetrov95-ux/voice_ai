@@ -19,6 +19,13 @@ from .f0 import fast_pitch
 AI_BLOCK_SIZE = 15360
 
 
+def create_converter(voice, sample_rate, provider="auto", profile="light"):
+    if getattr(voice, "backend", "rvc") == "native":
+        from .native import NativeConverter
+        return NativeConverter(voice, sample_rate)
+    return NeuralConverter(voice, sample_rate, provider, profile)
+
+
 def resample(audio, source_rate, target_rate):
     audio = np.asarray(audio, dtype=np.float32).reshape(-1)
     if source_rate == target_rate:

@@ -230,3 +230,24 @@ def test_ai_profile_defaults_to_light_and_respects_saved_choice(qt_app):
         panel.set_running(False)
         assert panel.profile.isEnabled()
         delete(panel)
+
+
+def test_large_ai_catalog_keeps_only_one_page_of_buttons(window, monkeypatch, tmp_path):
+    from voicelab import neural_ui
+    from voicelab.native import NativeVoice
+    voices = [NativeVoice(f"native-{i:032x}", f"AI-голос {i:04d}", tmp_path, i) for i in range(1, 1242)]
+    monkeypatch.setattr(neural_ui, "installed_voices", lambda: voices)
+    window.ai.reload()
+    window.ai.mode.setCurrentIndex(0)
+    assert len(window.ai_buttons) == 40
+    assert window.next_voices.isVisible()
+    window.next_voices.click()
+    assert len(window.ai_buttons) == 40
+    assert voices[40].id in window.ai_buttons and voices[0].id not in window.ai_buttons
+    window.search.setText("1241")
+    assert len(window.ai_buttons) == 1
+    assert voices[-1].id in window.ai_buttons
+    window.ai_buttons[voices[-1].id].click()
+    assert window.ai.voice.speaker_id == 1241
+    assert window.ai.provider.isHidden() and window.ai.profile.isHidden()
+    assert window.ai.rename_button.isVisible()

@@ -1,6 +1,7 @@
 """Stateful DSP shared by the live engine and offline rendering."""
 
 import math
+from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
 
@@ -76,12 +77,14 @@ def render_file(source: str | Path, destination: str | Path, settings: VoiceSett
     if source.resolve() == destination.resolve():
         raise ValueError("Входной и выходной файлы должны отличаться.")
     # Exclusive creation also protects against a destination appearing after selection.
-    with sf.SoundFile(source) as incoming:
+    with ExitStack() as cleanup, sf.SoundFile(source) as incoming:
         neural = None
         block_size = BLOCK_SIZE
         if voice is not None and settings.enabled:
-            from .neural import AI_BLOCK_SIZE, NeuralConverter
-            neural = NeuralConverter(voice, incoming.samplerate, provider, profile)
+            from .neural import AI_BLOCK_SIZE, create_converter
+            neural = create_converter(voice, incoming.samplerate, provider, profile)
+            if hasattr(neural, "close"):
+                cleanup.callback(neural.close)
             block_size = AI_BLOCK_SIZE
         processor = VoiceProcessor(incoming.samplerate, replace(settings, pitch=0) if neural else settings)
         with destination.open("xb") as handle:

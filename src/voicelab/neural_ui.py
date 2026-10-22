@@ -5,11 +5,12 @@ import threading
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout, QLabel,
-    QLineEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QInputDialog, QLineEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
 
 from .models import DownloadCancelled, install_voice, installed_voices
 from .voice_roles import roles_caption, roles_description
+from .native import rename_native_voice
 
 
 class InstallWorker(QObject):
@@ -168,6 +169,9 @@ class NeuralPanel(QWidget):
         self.add_button.clicked.connect(self.add_voice)
         row.addWidget(self.add_button)
         layout.addLayout(row)
+        self.rename_button = QPushButton("Назвать голос…")
+        self.rename_button.clicked.connect(self.rename_voice)
+        layout.addWidget(self.rename_button)
         self.provider = QComboBox()
         self.provider.addItem("Ускорение: автоматически (видеокарта / CPU)", "auto")
         self.provider.addItem("Видеокарта (DirectML)", "dml")
@@ -198,6 +202,9 @@ class NeuralPanel(QWidget):
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
         self.reload(preferences.get("ai_voice"))
+        if preferences.get("ai_backend") is None and self.voices and getattr(self.voices[0], "backend", "rvc") == "native":
+            self.voice_combo.setCurrentIndex(0)
+            self.buffer.setCurrentIndex(self.buffer.findData(160))
         for combo in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer):
             combo.currentIndexChanged.connect(self.update_state)
         self.update_state()
@@ -214,6 +221,10 @@ class NeuralPanel(QWidget):
     @property
     def ready(self):
         return not self.active or self.voice is not None
+
+    @property
+    def native(self):
+        return self.voice is not None and getattr(self.voice, "backend", "rvc") == "native"
 
     def reload(self, identifier=None):
         self.voice_combo.blockSignals(True)
@@ -233,15 +244,20 @@ class NeuralPanel(QWidget):
 
     def update_state(self, *args):
         self.voice_combo.setVisible(self.active)
-        self.provider.setVisible(self.active)
-        self.profile.setVisible(self.active)
+        self.provider.setVisible(self.active and not self.native)
+        self.profile.setVisible(self.active and not self.native)
         self.buffer.setVisible(self.active)
         self.add_button.setVisible(self.active)
+        self.rename_button.setVisible(self.active and self.native)
         if self.active:
             if self.voice:
                 roles = roles_description(self.voice.name)
-                self.note.setText("Модель: " + self.voice.name + ".\n" + (roles + "\n" if roles else "")
-                                  + "Интонации и язык следуют вашей речи.")
+                if self.native:
+                    self.note.setText(self.voice.name + ". Нативный AI работает на процессоре.\n"
+                                      "Профили пронумерованы. Выбранный голос можно переименовать.")
+                else:
+                    self.note.setText("Модель: " + self.voice.name + ".\n" + (roles + "\n" if roles else "")
+                                      + "Интонации и язык следуют вашей речи.")
                 self.voice_combo.setToolTip(roles or self.voice.name)
             else:
                 self.note.setText("AI-голоса пока не установлены. Добавьте обученную модель нужного персонажа.")
@@ -251,8 +267,18 @@ class NeuralPanel(QWidget):
         self.changed.emit()
 
     def set_running(self, running):
-        for widget in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer, self.add_button):
+        for widget in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer, self.add_button, self.rename_button):
             widget.setEnabled(not running)
+
+    def rename_voice(self):
+        voice = self.voice
+        if not self.native:
+            return
+        name, accepted = QInputDialog.getText(self, "Название голоса", "Ваше название:", text=voice.name)
+        if accepted and name.strip():
+            rename_native_voice(voice, name)
+            self.reload(voice.id)
+            self.update_state()
 
     def add_voice(self):
         dialog = InstallDialog(self)
@@ -267,4 +293,4 @@ class NeuralPanel(QWidget):
     def settings(self):
         return {"voice_mode": self.mode.currentData(), "ai_voice": self.voice_combo.currentData(),
                 "ai_provider": self.provider.currentData(), "ai_buffer_ms": self.buffer.currentData(),
-                "ai_profile": self.profile.currentData()}
+                "ai_profile": self.profile.currentData(), "ai_backend": "native" if self.native else "rvc"}

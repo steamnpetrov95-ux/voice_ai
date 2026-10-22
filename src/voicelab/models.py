@@ -170,7 +170,8 @@ def installed_voices():
             priorities[value["id"]] = value.get("priority", 100) if isinstance(value.get("priority", 100), int) else 100
         except (OSError, ValueError, KeyError, TypeError):
             continue
-    return sorted(voices.values(), key=lambda voice: (priorities[voice.id], voice.name))
+    from .native import installed_native_voices
+    return installed_native_voices() + sorted(voices.values(), key=lambda voice: (priorities[voice.id], voice.name))
 
 
 def install_voice(source, name, progress=lambda message, percent: None, cancel=None, credit="", terms_url=""):
