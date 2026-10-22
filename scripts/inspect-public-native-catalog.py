@@ -26,6 +26,9 @@ def inspect(url):
         except (ValueError, UnicodeDecodeError):
             result["format"] = "non-JSON"
             return result
+        if isinstance(data, dict) and data.get("data") is None:
+            result["api_code"] = data.get("code")
+            result["api_message"] = str(data.get("msg", ""))[:200]
         result["shape"] = list(data)[:100] if isinstance(data, dict) else {"type": type(data).__name__, "length": len(data)}
         urls, records = set(), []
 
@@ -60,7 +63,7 @@ def inspect(url):
 if __name__ == "__main__":
     targets = ["https://d" + number + ".dubbing-ai.com/rvc-client/assets/config.json" for number in ("1", "2", "6")]
     targets += ["https://" + host + "/api/rvc/getAllSpeakers" for host in ("console.dubbing-ai.com", "www.dubbing-ai.com")]
-    targets += ["https://" + host + "/rvc-client/assets/config.json" for host in ("console.dubbing-ai.com", "www.dubbing-ai.com")]
+    targets += ["https://console.dubbing-ai.com/api/rvc/getAliasSpeakers", "https://console.dubbing-ai.com/api/rvc/getSquareSpeakers"]
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(inspect, targets))
     Path("public-native-catalog.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
