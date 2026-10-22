@@ -104,7 +104,7 @@ def main():
                 data, rate = sf.read(output)
                 assert rate == 48000 and len(data) == len(samples) and np.max(np.abs(data)) > 1e-4
         report = {"note": "Native SDK Windows CI CPU measurements, not the user's i7-2600.",
-                  "profiles": len(voices), "provider": "Native CPU", "block_ms": 160,
+                  "profiles": len(voices), "named_profiles": sum(not v.name.startswith("AI-голос ") for v in voices), "provider": "Native CPU", "block_ms": 160,
                   "median_ms": round(statistics.median(timings), 2), "blocks": details, **memory_mb()}
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")

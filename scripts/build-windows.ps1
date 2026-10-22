@@ -1,4 +1,4 @@
-param([string]$CompilerPath = "", [switch]$EnableVBCableIntegration, [switch]$IncludeNeuralVoices)
+param([string]$CompilerPath = "", [switch]$EnableVBCableIntegration, [switch]$IncludeNeuralVoices, [switch]$IncludeNativeSDK)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -26,6 +26,10 @@ if (-not $CompilerPath -or -not (Test-Path $CompilerPath)) {
 & $python -m PyInstaller --noconfirm --clean --windowed --onedir --name VoiceLab --paths src --collect-all pedalboard --collect-all sounddevice --collect-all soundfile --collect-all onnxruntime --exclude-module torch --exclude-module torchvision --exclude-module torchaudio scripts/desktop_entry.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
 $compilerOptions = @()
+if ($IncludeNativeSDK) {
+    if (-not (Test-Path dist/native-sdk/manifest.json)) { throw 'Prepare and validate the personal native pack first.' }
+    $compilerOptions += '/DIntegrateNativeSDK=1'
+}
 if ($IncludeNeuralVoices) {
     if (-not (Test-Path dist/neural-models/SOURCES.json)) { throw "Prepare and validate the offline neural voice pack first." }
     $compilerOptions += "/DIntegrateNeuralVoices=1"

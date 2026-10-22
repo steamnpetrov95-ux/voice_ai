@@ -56,6 +56,8 @@ class AudioEngine:
         self.neural_buffer_ms = 320
         self.neural_profile = "light"
         self.stage_ms = {}
+        self._native_switch_lock = threading.Lock()
+        self._pending_native_voice = None
         self.loading = False
         self.processing_ms = 0.0
         self.provider_label = ""
@@ -89,6 +91,15 @@ class AudioEngine:
         self.neural_voice, self.neural_provider = voice, provider
         self.neural_buffer_ms = buffer_ms
         self.neural_profile = profile
+        with self._native_switch_lock:
+            self._pending_native_voice = None
+
+    def switch_native_voice(self, voice):
+        if (not self.running or getattr(self.neural_voice, "backend", None) != "native"
+                or getattr(voice, "backend", None) != "native" or voice.root != self.neural_voice.root):
+            raise RuntimeError("Остановите микрофон перед сменой движка.")
+        with self._native_switch_lock:
+            self._pending_native_voice = voice
 
     def start(self, input_device: int, output_device: int | None = None):
         if self.running:
@@ -248,6 +259,12 @@ class AudioEngine:
                     if neural and not settings.enabled:
                         neural.reset()
                 started = time.perf_counter()
+                with self._native_switch_lock:
+                    pending = self._pending_native_voice
+                    self._pending_native_voice = None
+                if pending is not None:
+                    neural.select_voice(pending)
+                    self.neural_voice = pending
                 converted = neural.process(block, settings.pitch) if neural and settings.enabled else block
                 result = processor.process(converted)
                 self.processing_ms = (time.perf_counter() - started) * 1000

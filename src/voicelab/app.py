@@ -454,7 +454,9 @@ class MainWindow(QMainWindow):
                 button.setMinimumHeight(180 if roles else 140)
                 button.setToolTip(f"Нейросетевая модель: {voice.name}\n{roles_description(voice.name)}\n{voice.credit}".strip())
                 button.setChecked(self.ai.voice is not None and voice.id == self.ai.voice.id)
-                button.setEnabled(not self.engine.running and self._render_thread is None)
+                live_switch = (self.engine.running and getattr(self.engine.neural_voice, "backend", "rvc") == "native"
+                               and getattr(voice, "backend", "rvc") == "native")
+                button.setEnabled((not self.engine.running or live_switch) and self._render_thread is None)
                 button.setVisible(True)
                 self.preset_grid.addWidget(button, visible // 4, visible % 4)
                 visible += 1
@@ -484,6 +486,11 @@ class MainWindow(QMainWindow):
         self.filter_presets()
 
     def ai_changed(self):
+        if (self.engine.running and self.ai.voice is not None
+                and getattr(self.engine.neural_voice, "backend", "rvc") == "native"
+                and getattr(self.ai.voice, "backend", "rvc") == "native"
+                and self.engine.neural_voice.id != self.ai.voice.id):
+            self.engine.switch_native_voice(self.ai.voice)
         if self.ai.active and not self._previous_ai_active:
             self.select_preset(PRESETS[0])
         self._previous_ai_active = self.ai.active
@@ -636,9 +643,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Не удалось включить микрофон", str(exc))
 
     def set_running(self, running):
-        self.ai.set_running(running)
-        for button in self.ai_buttons.values():
-            button.setEnabled(not running)
+        live_switch = running and getattr(self.engine.neural_voice, "backend", "rvc") == "native"
+        self.ai.set_running(running, allow_voice_switch=live_switch)
+        native_keys = {voice.id for voice in self.ai.voices if getattr(voice, "backend", "rvc") == "native"}
+        for key, button in self.ai_buttons.items():
+            button.setEnabled(not running or (live_switch and key in native_keys))
         self.update_monitor_controls()
         self.routing_combo.setEnabled(not running)
         self.input_combo.setEnabled(not running)

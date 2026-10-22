@@ -11,6 +11,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      include_native_sdk:
+        description: 'Bundle the personal native SDK from the supplied installer'
+        type: boolean
+        default: true
       include_neural_models:
         description: 'Prepare and bundle the six offline Russian models'
         type: boolean
@@ -31,12 +35,16 @@ jobs:
       contents: write
     env:
       PYTHONUTF8: '1'
+      BUILD_NATIVE_SDK: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.include_native_sdk || inputs.publish_release) && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai' }}
+      BUILD_RVC_MODELS: ${{ inputs.include_neural_models && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai' }}
       QT_QPA_PLATFORM: offscreen
       VBCABLE_INTEGRATION_AUTHORIZED: ${{ vars.VBCABLE_INTEGRATION_AUTHORIZED }}
       # Owner's personal setup; disabled in public repositories and other forks.
       VBCABLE_PERSONAL_SETUP: ${{ github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,13 +59,29 @@ jobs:
       - name: Validate VB-CABLE download and vendor signature
         shell: powershell
         run: ./installer/Install-VirtualMicrophone.ps1 -VerifyOnly
+      - name: Prepare the personal native SDK and catalogue
+        if: env.BUILD_NATIVE_SDK == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/prepare-native-windows.ps1
+      - name: Validate all native profiles and measure offline processing
+        if: env.BUILD_NATIVE_SDK == 'true'
+        run: |
+          $nativePython = (python -c "import sys; print(sys.executable)").Trim()
+          New-NetFirewallRule -DisplayName 'npetrov native validation' -Direction Outbound -Program $nativePython -Action Block -Profile Any | Out-Null
+          try {
+            python scripts/smoke-native-sdk.py --models dist/native-sdk --speech .analysis/speech.wav
+            if ($LASTEXITCODE -ne 0) { throw 'Native profile validation failed' }
+          } finally {
+            Remove-NetFirewallRule -DisplayName 'npetrov native validation'
+          }
       - uses: actions/cache@v4
-        if: (startsWith(github.ref, 'refs/tags/') || inputs.include_neural_models || inputs.publish_release) && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+        if: env.BUILD_RVC_MODELS == 'true'
         with:
           path: dist/neural-models/common
           key: rvc-common-61d0d059-84f05863-v1
       - name: Prepare offline Russian neural voices for the personal release
-        if: (startsWith(github.ref, 'refs/tags/') || inputs.include_neural_models || inputs.publish_release) && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+        if: env.BUILD_RVC_MODELS == 'true'
         shell: pwsh
         env:
           PYTHONPATH: ${{ github.workspace }}/src
@@ -68,13 +92,13 @@ jobs:
           .neural-build/Scripts/python scripts/prepare-neural-voices.py
           if ($LASTEXITCODE -ne 0) { throw 'Neural model preparation failed' }
       - name: Compare light and full AI speed and memory on real speech
-        if: (startsWith(github.ref, 'refs/tags/') || inputs.include_neural_models || inputs.publish_release) && github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+        if: env.BUILD_RVC_MODELS == 'true'
         env:
           PYTHONPATH: ${{ github.workspace }}/src
         run: .neural-build/Scripts/python scripts/benchmark-neural.py
       - name: Build application and single EXE installer
         shell: pwsh
-        run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true') -IncludeNeuralVoices:(Test-Path dist/neural-models/SOURCES.json)
+        run: ./scripts/build-windows.ps1 -EnableVBCableIntegration:($env:VBCABLE_INTEGRATION_AUTHORIZED -eq 'true' -or $env:VBCABLE_PERSONAL_SETUP -eq 'true') -IncludeNeuralVoices:(Test-Path dist/neural-models/SOURCES.json) -IncludeNativeSDK:(Test-Path dist/native-sdk/manifest.json)
       - name: Smoke test packaged DSP
         shell: pwsh
         run: |
@@ -102,6 +126,15 @@ jobs:
           if (Test-Path dist/neural-models/SOURCES.json) {
             python scripts/smoke-neural-installer.py --app $app --models (Join-Path $installDir 'models')
             if ($LASTEXITCODE -ne 0) { throw 'Installed neural voice processing failed' }
+          }
+          if (Test-Path dist/native-sdk/manifest.json) {
+            New-NetFirewallRule -DisplayName 'npetrov installed native validation' -Direction Outbound -Program $app -Action Block -Profile Any | Out-Null
+            try {
+              python scripts/smoke-native-sdk.py --models (Join-Path $installDir 'native-sdk') --speech .analysis/speech.wav --app $app --skip-catalogue --output dist/native-installed-benchmark.json
+              if ($LASTEXITCODE -ne 0) { throw 'Installed native processing failed' }
+            } finally {
+              Remove-NetFirewallRule -DisplayName 'npetrov installed native validation'
+            }
           }
           $uninstall = Start-Process -FilePath (Join-Path $installDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed' }
@@ -140,7 +173,11 @@ jobs:
             gh release create $tag --target $env:GITHUB_SHA --draft --title "npetrov VoiceLab $tag" --notes-file docs/RELEASE_NOTES.md
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
           }
-          gh release upload $tag dist/installer/VoiceLab-Setup.exe dist/installer/VoiceLab-Setup.exe.sha256 dist/neural-benchmark.json --clobber
+          $releaseAssets = @('dist/installer/VoiceLab-Setup.exe', 'dist/installer/VoiceLab-Setup.exe.sha256')
+          foreach ($optionalAsset in @('dist/neural-benchmark.json', 'dist/native-benchmark.json', 'dist/native-reference.wav')) {
+            if (Test-Path $optionalAsset) { $releaseAssets += $optionalAsset }
+          }
+          gh release upload $tag @releaseAssets --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Could not upload the verified installer' }
           gh release edit $tag --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Could not publish the verified installer' }

@@ -104,6 +104,11 @@ _engine_lock = threading.Lock()
 _libraries = {}
 
 
+def _trace(message):
+    if os.environ.get("VOICELAB_NATIVE_TRACE") == "1":
+        print("::warning title=Native SDK stage::" + message, flush=True)
+
+
 class NativeRuntime:
     """Win64 virtual interface recovered from the supplied client, version pinned."""
 
@@ -123,11 +128,13 @@ class NativeRuntime:
                     if hashlib.file_digest(handle, "sha256").hexdigest() != item["sha256"]:
                         raise ValueError("Повреждён файл нативного движка. Переустановите приложение.")
             directory = os.add_dll_directory(str(root / "sdk"))
+            _trace("Loading SDK")
             library = ctypes.WinDLL(str(_file(root, "sdk/dubbing-sdk-windows.dll")), winmode=0x100 | 0x1000)
             factory = getattr(library, "?V_@IVoiceTranscribe@DUBBING@@SAPEAV12@XZ")
             factory.argtypes, factory.restype = [], ctypes.c_void_p
             _libraries[key] = (directory, library, factory)
         self.library = _libraries[key]
+        _trace("Calling factory")
         self.instance = self.library[2]()
         if not self.instance:
             raise RuntimeError("Нативный движок не создал экземпляр.")
@@ -168,32 +175,53 @@ class NativeConverter:
         self.pitch_shifter = None
         self.pitch_shift = 0
         self.sample_rate = sample_rate
+        self.root = voice.root.resolve()
+        self.voice = voice
         if not _engine_lock.acquire(blocking=False):
             raise RuntimeError("Дождитесь завершения другой обработки нативного голоса.")
         self._owns_lock = True
         try:
             value = _manifest(voice.root)
+            self.manifest = value
             binaries = [{"id": item["id"], "bid": item["bid"], "localPath": str(_file(voice.root, item["file"]))}
                         for item in value["binaries"]]
             speakers = [{"id": item["id"], "binFileIds": [1, 2, 3], "localPath": str(_file(voice.root, item["file"]))}
                         for item in value["voices"]]
             if voice.speaker_id not in {item["id"] for item in speakers}:
                 raise ValueError("Выбранный нативный голос отсутствует.")
-            selected = next(item for item in value["voices"] if item["id"] == voice.speaker_id)
-            expected = next(item["sha256"] for item in value["checksums"] if item["file"] == selected["file"])
-            if hashlib.sha256(_file(voice.root, selected["file"]).read_bytes()).hexdigest() != expected:
-                raise ValueError("Повреждён профиль нативного голоса.")
+            self._check_voice(voice)
             self.runtime = NativeRuntime(voice.root, value)
+            _trace(f"Initializing {len(speakers)} voices at {sample_rate} Hz")
             code = self.runtime.initialize(binaries, speakers, sample_rate)
+            _trace(f"Initialized: {code}")
             if code != 10000:
                 raise RuntimeError(f"Нативный движок не инициализирован: {code}.")
-            code = self.runtime.select(voice.speaker_id)
-            if code != 10000:
-                raise RuntimeError(f"Нативный голос не загружен: {code}.")
-            self.runtime.enable()
+            self.select_voice(voice)
         except Exception:
             self.close()
             raise
+
+    def _check_voice(self, voice):
+        if voice.root.resolve() != self.root or getattr(voice, "backend", None) != "native":
+            raise ValueError("Нельзя сменить библиотеку во время обработки.")
+        selected = next((item for item in self.manifest["voices"] if item["id"] == voice.speaker_id
+                         and voice.id == "native-" + item["key"]), None)
+        if selected is None:
+            raise ValueError("Нативный голос отсутствует в каталоге.")
+        expected = next(item["sha256"] for item in self.manifest["checksums"] if item["file"] == selected["file"])
+        if hashlib.sha256(_file(voice.root, selected["file"]).read_bytes()).hexdigest() != expected:
+            raise ValueError("Повреждён профиль нативного голоса.")
+
+    def select_voice(self, voice):
+        self._check_voice(voice)
+        _trace(f"Selecting {voice.speaker_id}")
+        code = self.runtime.select(voice.speaker_id)
+        if code != 10000:
+            raise RuntimeError(f"Нативный голос не загружен: {code}.")
+        self.runtime.enable()
+        self.voice = voice
+        self.pitch_shifter = None
+        self.pitch_shift = 0
 
     def process(self, block, pitch_shift=0):
         if self.runtime is None:
@@ -224,7 +252,9 @@ class NativeConverter:
         try:
             if self.runtime is not None:
                 runtime, self.runtime = self.runtime, None
+                _trace("Releasing SDK")
                 runtime.close()
+                _trace("Released SDK")
         finally:
             if self._owns_lock:
                 self._owns_lock = False

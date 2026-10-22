@@ -54,6 +54,9 @@ russian.DriverFailed=npetrov VoiceLab установлен. Установка �
 
 [Files]
 Source: "..\dist\VoiceLab\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef IntegrateNativeSDK
+Source: "..\dist\native-sdk\*"; DestDir: "{app}\native-sdk"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 #ifdef IntegrateNeuralVoices
 Source: "..\dist\neural-models\*"; DestDir: "{app}\models"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: neuralvoices
 #endif

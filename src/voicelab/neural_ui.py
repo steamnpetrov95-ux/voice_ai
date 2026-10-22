@@ -266,9 +266,15 @@ class NeuralPanel(QWidget):
             self.note.setText("48 наборов эффектов. Для естественной замены личности голоса выберите режим AI.")
         self.changed.emit()
 
-    def set_running(self, running):
+    def set_running(self, running, allow_voice_switch=False):
         for widget in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer, self.add_button, self.rename_button):
             widget.setEnabled(not running)
+        if running and allow_voice_switch:
+            self.voice_combo.setEnabled(True)
+        for index, voice in enumerate(self.voices):
+            item = self.voice_combo.model().item(index)
+            if item is not None:
+                item.setEnabled(not running or (allow_voice_switch and getattr(voice, "backend", "rvc") == "native"))
 
     def rename_voice(self):
         voice = self.voice

@@ -131,6 +131,58 @@ def test_native_instances_cannot_race_the_sdk_singleton(library, runtime):
         converter.close()
 
 
+def test_native_voice_switch_reuses_the_initialized_runtime(library, runtime):
+    first, second = native.installed_native_voices()
+    converter = native.NativeConverter(first, 48000)
+    try:
+        converter.select_voice(second)
+        assert len(runtime.instances) == 1
+        assert runtime.instances[0].selected == 2 and converter.voice.id == second.id
+        assert converter.process(np.ones(480, np.float32) * 0.1).shape == (480,)
+    finally:
+        converter.close()
+
+
+def test_live_native_switch_and_both_output_queues(library, runtime):
+    import queue
+    import threading
+    from voicelab.audio import AudioEngine
+
+    first, second = native.installed_native_voices()
+    engine = AudioEngine()
+    engine.configure_neural(first)
+    engine.configure(VoiceSettings(clarity=0))
+    engine.running = True
+    engine._output = object()
+    engine._monitor_queue = queue.Queue(2)
+    worker = threading.Thread(target=engine._process)
+    worker.start()
+    try:
+        # Wait for loading to finish by sending until a processed block arrives.
+        samples = np.ones(480, np.float32) * 0.2
+        for _ in range(20):
+            engine._in_queue.put(samples)
+            try:
+                engine._out_queue.get(timeout=0.05)
+                break
+            except queue.Empty:
+                pass
+        while not engine._monitor_queue.empty():
+            engine._monitor_queue.get_nowait()
+        engine.switch_native_voice(second)
+        engine._in_queue.put(samples)
+        primary = engine._out_queue.get(timeout=2)
+        monitor = engine._monitor_queue.get(timeout=2)
+        np.testing.assert_array_equal(primary, monitor)
+        np.testing.assert_allclose(primary, -samples, atol=5e-5)
+        assert engine.neural_voice.id == second.id
+        assert len(runtime.instances) == 1
+    finally:
+        engine._stop.set()
+        worker.join(timeout=2)
+    assert not worker.is_alive() and runtime.instances[0].closed
+
+
 def test_native_profile_integrity_is_checked_before_loading(library, runtime):
     voice = native.installed_native_voices()[0]
     (library / voice.id.removeprefix("native-")).write_bytes(b"damaged")
