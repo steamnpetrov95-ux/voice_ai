@@ -1,0 +1,51 @@
+name: Inspect user-supplied native voice SDK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+    runs-on: windows-latest
+    timeout-minutes: 8
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download the user-supplied installer and the extraction tool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download forai --pattern 'DubbingAI*.exe' --dir .analysis/input
+          if ($LASTEXITCODE -ne 0) { throw 'Installer download failed' }
+          gh release download 1.9 --repo dscharrer/innoextract --pattern innoextract-1.9-windows.zip --dir .analysis/tool
+          if ($LASTEXITCODE -ne 0) { throw 'Extractor download failed' }
+          $installer = (Get-ChildItem .analysis/input/*.exe | Select-Object -First 1).FullName
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'af7ea3aa9c743473d0cb927e9d388da192af64681870b3c2aedc11a7e987f231') { throw 'Unexpected installer hash' }
+          if ((Get-FileHash .analysis/tool/innoextract-1.9-windows.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '6989342c9b026a00a72a38f23b62a8e6a22cc5de69805cf47d68ac2fec993065') { throw 'Unexpected extractor hash' }
+          Expand-Archive .analysis/tool/innoextract-1.9-windows.zip .analysis/tool/unpacked
+          & .analysis/tool/unpacked/innoextract.exe --extract --silent --output-dir .analysis/extracted $installer
+          if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
+      - name: Probe the SDK loader and public factory with networking blocked
+        run: |
+          $hostPython = (python -c "import sys; print(sys.executable)").Trim()
+          New-NetFirewallRule -DisplayName 'npetrov isolated SDK probe' -Direction Outbound -Program $hostPython -Action Block -Profile Any | Out-Null
+          try {
+            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json
+            if ($LASTEXITCODE -ne 0) { throw 'SDK metadata probe failed' }
+          } finally {
+            Remove-NetFirewallRule -DisplayName 'npetrov isolated SDK probe'
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-sdk-metadata
+          retention-days: 3
+          path: .analysis/sdk-probe.json

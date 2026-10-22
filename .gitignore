@@ -9,4 +9,5 @@ build/
 dist/
 *.spec
 .local/
+.analysis/
 recordings/
