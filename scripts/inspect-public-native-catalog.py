@@ -29,19 +29,22 @@ def inspect(url):
         result["shape"] = list(data)[:100] if isinstance(data, dict) else {"type": type(data).__name__, "length": len(data)}
         urls, records = set(), []
 
-        def walk(value):
+        def walk(value, inherited=""):
+
             if isinstance(value, dict):
-                name = value.get("name") or value.get("displayName")
+                name = value.get("name") or value.get("displayName") or value.get("speakerName") or inherited
                 if isinstance(name, str):
-                    fields = ("id", "name", "displayName", "localFileName", "fileName", "url", "modelUrl", "speakerId", "groupModelId", "binFileIds")
-                    records.append({key: value[key] for key in fields if key in value and isinstance(value[key], (str, int, list))})
+                    fields = ("id", "name", "displayName", "localFileName", "fileName", "url", "modelUrl", "speakerId", "groupModelId", "binFileIds", "fileKey", "localPath")
+                    record = {key: value[key] for key in fields if key in value and isinstance(value[key], (str, int, list))}
+                    record["name"] = name
+                    records.append(record)
                 for key, item in value.items():
                     if re.search(r"token|password|secret|authorization|cookie", key, re.I):
                         continue
-                    walk(item)
+                    walk(item, name if isinstance(name, str) else inherited)
             elif isinstance(value, list):
                 for item in value:
-                    walk(item)
+                    walk(item, name if isinstance(name, str) else inherited)
             elif isinstance(value, str) and value.startswith("https://"):
                 parts = urllib.parse.urlsplit(value)
                 urls.add(urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", "")))
@@ -56,8 +59,9 @@ def inspect(url):
 
 
 if __name__ == "__main__":
-    targets = ["https://" + host + "/res.json" for host in HOSTS]
-    targets += ["https://dvi.dubbingai.io/api/rvc/getAllSpeakers", "https://dvi.dubbing-ai.com/api/rvc/getAllSpeakers"]
+    targets = ["https://d" + number + ".dubbing-ai.com/rvc-client/assets/config.json" for number in ("1", "2", "6")]
+    targets += ["https://" + host + "/api/rvc/getAllSpeakers" for host in ("console.dubbing-ai.com", "www.dubbing-ai.com")]
+    targets += ["https://" + host + "/rvc-client/assets/config.json" for host in ("console.dubbing-ai.com", "www.dubbing-ai.com")]
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(inspect, targets))
     Path("public-native-catalog.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
