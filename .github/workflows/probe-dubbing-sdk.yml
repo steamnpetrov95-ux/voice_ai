@@ -57,6 +57,9 @@ jobs:
             python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav
             if ($LASTEXITCODE -ne 0) { throw 'Native backend validation failed' }
             python -c "import json; print('::warning title=Native backend validation::'+json.dumps(json.load(open('dist/native-benchmark.json'))))"
+            $env:VOICELAB_NATIVE_TRACE = '0'
+            python scripts/benchmark-native-latency.py --models dist/native-sdk --speech .analysis/speech.wav
+            if ($LASTEXITCODE -ne 0) { throw 'Short native buffer validation failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov isolated SDK probe'
           }
@@ -69,3 +72,5 @@ jobs:
             .analysis/sdk-reference-output.wav
             dist/native-benchmark.json
             dist/native-reference.wav
+            dist/native-latency.json
+            dist/native-*ms.wav
