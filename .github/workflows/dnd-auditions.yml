@@ -36,32 +36,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/prepare-native-windows.ps1
-      - name: Generate the common Russian reference with offline Piper
+      - name: Download the real Russian CC0 reference
         run: |
           $ErrorActionPreference = 'Stop'
           try {
-            python -m venv .piper-env
-            .piper-env/Scripts/python -m pip install piper-tts==1.3.0 onnxruntime==1.20.1 numpy==2.2.6
-            if ($LASTEXITCODE -ne 0) { throw 'Reference TTS installation failed' }
-            New-Item -ItemType Directory .analysis/piper -Force | Out-Null
-            $modelBase = 'https://huggingface.co/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/ru/ru_RU/dmitri/medium'
-            Invoke-WebRequest "$modelBase/ru_RU-dmitri-medium.onnx" -OutFile .analysis/piper/voice.onnx
-            Invoke-WebRequest "$modelBase/ru_RU-dmitri-medium.onnx.json" -OutFile .analysis/piper/voice.onnx.json
-            if ((Get-FileHash .analysis/piper/voice.onnx -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f073356ebc4bd0f80c5af58df2953a5988bd5bdab1eb38635ce960b071fbefcb') { throw 'Unexpected reference model hash' }
-            if ((Get-FileHash .analysis/piper/voice.onnx.json -Algorithm SHA256).Hash.ToLowerInvariant() -ne '667ef3117bc642c2892dff7690d8bdc8ca4228aeaa783b2dc1416df632855e0d') { throw 'Unexpected reference config hash' }
-            .piper-env/Scripts/python -m piper --model .analysis/piper/voice.onnx --input-file samples/dnd-reference-ru.txt --output-file .analysis/dnd-reference-ru.wav --sentence-silence 0.16 --volume 0.5
-            if ($LASTEXITCODE -ne 0) { throw 'Reference speech synthesis failed' }
+            Invoke-WebRequest 'https://raw.githubusercontent.com/OHF-Voice/voice-datasets/8ed76fa9001fafc77db32bd682f434938c679e3e/ru_RU/dmitri/0000000001.mp3' -OutFile .analysis/dnd-human-ru.mp3
+            if ((Get-FileHash .analysis/dnd-human-ru.mp3 -Algorithm SHA256).Hash.ToLowerInvariant() -ne '0576b8050def5d3635545ed3eaa6d4faaf348f1ff8d0d64443b94485853a2d40') { throw 'Unexpected human reference hash' }
           } catch {
             Write-Host ('::error title=Russian reference::' + $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' '))
             throw
           }
-      - name: Render native AI candidates with networking blocked
+      - name: Compare the same profiles on real speech with networking blocked
         run: |
           $nativePython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov DnD auditions' -Direction Outbound -Program $nativePython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/make-dnd-auditions.py --models dist/native-sdk --speech .analysis/dnd-reference-ru.wav
-            if ($LASTEXITCODE -ne 0) { throw 'AI audition rendering failed' }
+            python scripts/check-native-quality.py --models dist/native-sdk --speech .analysis/dnd-human-ru.mp3
+            if ($LASTEXITCODE -ne 0) { throw 'Native quality comparison failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov DnD auditions'
           }
@@ -69,5 +60,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload v0.3.3 dist/DnD-voice-auditions.html dist/DnD-voice-auditions.json --clobber
+          Compress-Archive -Path dist/native-quality/* -DestinationPath dist/native-quality.zip -Force
+          gh release upload v0.3.3 dist/DnD-human-voice-check.html dist/native-quality.json dist/native-quality.zip --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Audition page upload failed' }

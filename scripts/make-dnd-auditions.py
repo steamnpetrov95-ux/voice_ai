@@ -94,9 +94,9 @@ def wav_url(samples):
     return "data:audio/wav;base64," + base64.b64encode(output.getvalue()).decode("ascii")
 
 
-def write_page(destination, source, records, text):
+def write_page(destination, source, records, text, reference_note):
     template = Path(__file__).with_name("dnd-auditions.html").read_text(encoding="utf-8")
-    data = {"text": text, "original": wav_url(source), "voices": records}
+    data = {"text": text, "reference_note": reference_note, "original": wav_url(source), "voices": records}
     # No HTML from catalogue names; the page uses textContent for all labels.
     encoded = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     destination.write_text(template.replace("__AUDITION_DATA__", encoded), encoding="utf-8")
@@ -106,6 +106,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", type=Path, required=True)
     parser.add_argument("--speech", type=Path, required=True)
+    parser.add_argument("--reference-text", type=Path, required=True)
+    parser.add_argument("--reference-note", required=True)
     parser.add_argument("--candidates", type=int, default=48)
     parser.add_argument("--count", type=int, default=12)
     parser.add_argument("--output", type=Path, default=Path("dist/DnD-voice-auditions.html"))
@@ -138,10 +140,10 @@ def main():
     records = [{"id": candidates[i][0].id, "name": candidates[i][0].name,
                 "speaker_id": candidates[i][0].speaker_id, "audio": wav_url(candidates[i][1])}
                for i in selected]
-    text = (Path(__file__).resolve().parents[1] / "samples/dnd-reference-ru.txt").read_text(encoding="utf-8").strip()
+    text = args.reference_text.read_text(encoding="utf-8").strip()
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    write_page(args.output, source, records, text)
-    report = {"reference": "Russian synthetic speech, Piper dmitri medium; see docs/DND_VOICE_AUDITIONS.md",
+    write_page(args.output, source, records, text, args.reference_note)
+    report = {"reference": args.reference_note,
               "note": "Selected for acoustic diversity. Naturalness and NPC suitability need human listening.",
               "candidates_rendered": len(candidates), "rejected": rejected,
               "voices": [{k: v for k, v in item.items() if k != "audio"} for item in records]}

@@ -9,6 +9,7 @@ on:
       - '.github/workflows/neural-models.yml'
       - 'scripts/remote_zip.py'
       - 'scripts/make-dnd-auditions.py'
+      - 'scripts/check-native-quality.py'
       - 'scripts/dnd-auditions.html'
       - 'tests/test_auditions.py'
       - 'samples/dnd-reference-ru.txt'

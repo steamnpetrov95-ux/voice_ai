@@ -6,7 +6,7 @@
 </style>
 <h1>npetrov · Голоса для вашей ДнД</h1>
 <p>Послушайте образцы и отметьте голоса, которыми хотите отыгрывать NPC. Можно придумать им свои роли. Это пробное прослушивание: названия конкретных персонажей этим голосам пока не присвоены.</p>
-<section><strong>Исходная реплика</strong><p id="phrase"></p><div id="original"></div><small>Реплика синтезирована по-русски. Образцы обработаны AI без эха и мультяшных фильтров; громкость выровнена для сравнения. На вашем микрофоне результат может отличаться.</small></section>
+<section><strong>Исходная запись</strong><p id="phrase"></p><div id="original"></div><small id="reference-note"></small></section>
 <div id="voices"></div>
 <datalist id="roles"><option value="Трактирщик"><option value="Старый маг"><option value="Гоблин"><option value="Орк"><option value="Дворянин"><option value="Злодей"><option value="Рассказчик"></datalist>
 <section><strong>Ваш выбор</strong><p>Скопируйте список в чат — по нему можно собрать подборку ваших NPC. Эта страница не меняет настройки приложения.</p><textarea id="selection" readonly aria-label="Выбранные голоса"></textarea><button id="copy">Скопировать выбор</button><button id="save">Сохранить выбор в файл</button><small id="status"></small></section>
@@ -16,6 +16,7 @@
 'use strict';
 const data=JSON.parse(document.getElementById('data').textContent), chosen=new Map();
 document.getElementById('phrase').textContent=data.text;
+document.getElementById('reference-note').textContent=data.reference_note;
 function player(url){const a=document.createElement('audio');a.controls=true;a.preload='none';a.src=url;a.addEventListener('play',()=>document.querySelectorAll('audio').forEach(other=>{if(other!==a)other.pause()}));return a}
 document.getElementById('original').append(player(data.original));
 function summary(){return [...chosen].map(([id,v])=>({id,name:v.name,role:v.role.value.trim()}))}

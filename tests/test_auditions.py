@@ -11,6 +11,19 @@ import soundfile as sf
 spec = importlib.util.spec_from_file_location("dnd_auditions", Path(__file__).resolve().parents[1] / "scripts/make-dnd-auditions.py")
 auditions = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(auditions)
+quality_spec = importlib.util.spec_from_file_location("native_quality", Path(__file__).resolve().parents[1] / "scripts/check-native-quality.py")
+quality = importlib.util.module_from_spec(quality_spec)
+quality_spec.loader.exec_module(quality)
+
+
+def test_waveform_comparison_aligns_delay_without_calling_it_quality():
+    source = np.random.default_rng(42).normal(0, 0.1, 16000)
+    delayed = np.pad(source, (71, 0))
+    for a, b, expected in ((source, source, 0), (source, delayed, -71), (delayed, source, 71)):
+        result = quality.compare(a, b)
+        assert result["lag_samples"] == expected
+        assert result["relative_rms_error"] == 0
+        assert result["waveform_correlation"] == 1
 
 
 def test_diversity_selects_examples_from_different_acoustic_groups():
@@ -60,11 +73,12 @@ def test_page_contains_playable_inline_audio_and_safe_catalogue_text(tmp_path):
     assert 0.01 < np.max(np.abs(audio)) <= 0.88
     name = '</script><script>alert("x")</script>'
     page = tmp_path / "auditions.html"
-    auditions.write_page(page, source, [{"id": "native-id", "name": name, "audio": url}], "Русская реплика")
+    auditions.write_page(page, source, [{"id": "native-id", "name": name, "audio": url}], "Русская реплика", "Живая запись CC0")
     html = page.read_text(encoding="utf-8")
     assert name not in html
     embedded = html.split('<script type="application/json" id="data">', 1)[1].split('</script>', 1)[0]
     data = json.loads(embedded)
     assert data["voices"][0]["name"] == name
     assert data["original"].startswith("data:audio/wav;base64,")
+    assert data["reference_note"] == "Живая запись CC0"
     assert "__AUDITION_DATA__" not in html
