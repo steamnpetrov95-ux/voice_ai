@@ -5,6 +5,7 @@ not a memory dump. The CI workflow blocks network access for the Python host.
 """
 
 import argparse
+import array
 import ctypes
 import hashlib
 import itertools
@@ -16,9 +17,11 @@ import struct
 import subprocess
 import sys
 import time
+import statistics
+import wave
 
 
-def inspect_loaded(path, initialization=None):
+def inspect_loaded(path, initialization=None, speech=None):
     from ctypes import wintypes as w
 
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -110,6 +113,47 @@ def inspect_loaded(path, initialization=None):
                                                                 json.dumps(speakers).encode(), 48000, 48000)
                         result["initialize_ms"] = round((time.perf_counter() - started) * 1000)
                         result["initialization_case"] = initialization
+                        result["initialize_ok"] = result["initialize_code"] == 10000
+                        if result["initialize_ok"] and initialization != "empty":
+                            def method(offset, restype, *types):
+                                address = ctypes.create_string_buffer(8)
+                                if not kernel.ReadProcessMemory(process, table + offset, address, 8, ctypes.byref(received)):
+                                    raise ctypes.WinError(ctypes.get_last_error())
+                                return ctypes.CFUNCTYPE(restype, ctypes.c_void_p, *types)(
+                                    struct.unpack("<Q", address.raw)[0])
+
+                            started = time.perf_counter()
+                            result["select_voice_code"] = method(0x18, ctypes.c_int, ctypes.c_int64)(instance, 1)
+                            result["select_voice_ms"] = round((time.perf_counter() - started) * 1000)
+                            if result["select_voice_code"] == 10000 and speech:
+                                # Same scalar toggle and in-place PCM16 call seen in
+                                # the original client; no authentication branches are patched.
+                                method(0x28, None, ctypes.c_int)(instance, 1)
+                                transform = method(0x60, None, ctypes.c_void_p, ctypes.c_int64)
+                                with wave.open(str(speech), "rb") as source:
+                                    if (source.getnchannels(), source.getsampwidth(), source.getframerate()) != (1, 2, 48000):
+                                        raise ValueError("Reference speech must be mono PCM16 48 kHz")
+                                    original = source.readframes(source.getnframes())
+                                outputs, durations = [], []
+                                count = 7680
+                                for offset in range(0, len(original), count * 2):
+                                    block = original[offset:offset + count * 2].ljust(count * 2, b"\0")
+                                    pcm = ctypes.create_string_buffer(block, len(block))
+                                    started = time.perf_counter()
+                                    transform(instance, pcm, count)
+                                    durations.append((time.perf_counter() - started) * 1000)
+                                    outputs.append(pcm.raw)
+                                output = b"".join(outputs)[:len(original)]
+                                before, after = array.array("h"), array.array("h")
+                                before.frombytes(original)
+                                after.frombytes(output)
+                                result["audio_frames"] = len(after)
+                                result["audio_changed_fraction"] = round(sum(a != b for a, b in zip(before, after)) / len(after), 4)
+                                result["audio_peak"] = max(abs(value) for value in after) / 32768
+                                result["audio_rms"] = (sum(value * value for value in after) / len(after)) ** 0.5 / 32768
+                                result["block_ms"] = 160
+                                result["median_process_ms"] = round(statistics.median(durations[2:]), 2)
+                                result["max_process_ms"] = round(max(durations), 2)
     directory.close()
     return result
 
@@ -121,11 +165,12 @@ def main():
     parser.add_argument("--child", type=Path)
     parser.add_argument("--initialization")
     parser.add_argument("--probe-initialization", action="store_true")
+    parser.add_argument("--speech", type=Path)
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("The loader probe requires Windows")
     if args.child:
-        print(json.dumps(inspect_loaded(args.child.resolve(), args.initialization)), flush=True)
+        print(json.dumps(inspect_loaded(args.child.resolve(), args.initialization, args.speech)), flush=True)
         return
     environment = {key: value for key, value in os.environ.items()
                    if not any(word in key.upper() for word in ("TOKEN", "SECRET", "PASSWORD"))}
@@ -139,6 +184,8 @@ def main():
             command = [sys.executable, str(Path(__file__).resolve()), "--child", str((args.app / name).resolve())]
             if initialization is not None:
                 command.extend(["--initialization", initialization])
+            if args.speech:
+                command.extend(["--speech", str(args.speech.resolve())])
             child = subprocess.run(command, env=environment,
                                    capture_output=True, text=True, errors="replace", timeout=45)
             if child.returncode:

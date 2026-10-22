@@ -34,12 +34,13 @@ jobs:
           Expand-Archive .analysis/tool/innoextract-1.9-windows.zip .analysis/tool/unpacked
           & .analysis/tool/unpacked/innoextract.exe --extract --silent --output-dir .analysis/extracted $installer
           if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
+          Invoke-WebRequest 'https://raw.githubusercontent.com/dev6699/rvc-onnx/9d20b0ff54df72e83c2826e76c2e1eff5f1ab824/assets/input_1.wav' -OutFile .analysis/speech.wav
       - name: Probe the SDK loader and public factory with networking blocked
         run: |
           $hostPython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov isolated SDK probe' -Direction Outbound -Program $hostPython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json --probe-initialization
+            python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json --probe-initialization --speech .analysis/speech.wav
             if ($LASTEXITCODE -ne 0) { throw 'SDK metadata probe failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov isolated SDK probe'
