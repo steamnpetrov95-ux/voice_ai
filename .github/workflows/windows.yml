@@ -70,7 +70,7 @@ jobs:
           $nativePython = (python -c "import sys; print(sys.executable)").Trim()
           New-NetFirewallRule -DisplayName 'npetrov native validation' -Direction Outbound -Program $nativePython -Action Block -Profile Any | Out-Null
           try {
-            python scripts/smoke-native-sdk.py --models dist/native-sdk --speech .analysis/speech.wav
+            python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav
             if ($LASTEXITCODE -ne 0) { throw 'Native profile validation failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov native validation'
@@ -130,7 +130,7 @@ jobs:
           if (Test-Path dist/native-sdk/manifest.json) {
             New-NetFirewallRule -DisplayName 'npetrov installed native validation' -Direction Outbound -Program $app -Action Block -Profile Any | Out-Null
             try {
-              python scripts/smoke-native-sdk.py --models (Join-Path $installDir 'native-sdk') --speech .analysis/speech.wav --app $app --skip-catalogue --output dist/native-installed-benchmark.json
+              python scripts/run-native-validation.py --models (Join-Path $installDir 'native-sdk') --speech .analysis/speech.wav --app $app --skip-catalogue --output dist/native-installed-benchmark.json
               if ($LASTEXITCODE -ne 0) { throw 'Installed native processing failed' }
             } finally {
               Remove-NetFirewallRule -DisplayName 'npetrov installed native validation'

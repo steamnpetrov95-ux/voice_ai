@@ -54,7 +54,7 @@ jobs:
             python scripts/probe-dubbing-sdk.py --app .analysis/extracted/app --output .analysis/sdk-probe.json
             if ($LASTEXITCODE -ne 0) { throw 'SDK metadata probe failed' }
             $env:VOICELAB_NATIVE_TRACE = '1'
-            python -X faulthandler scripts/smoke-native-sdk.py --models dist/native-sdk --speech .analysis/speech.wav
+            python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav
             if ($LASTEXITCODE -ne 0) { throw 'Native backend validation failed' }
             python -c "import json; print('::warning title=Native backend validation::'+json.dumps(json.load(open('dist/native-benchmark.json'))))"
           } finally {
