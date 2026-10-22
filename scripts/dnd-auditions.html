@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>npetrov · Прослушивание голосов для ДнД</title>
+<style>
+:root{color-scheme:dark;font:16px/1.55 system-ui;background:#10151e;color:#edf3ff}body{max-width:1000px;margin:auto;padding:28px}h1{font-size:30px;line-height:1.2}p{color:#b8c6d9}section{background:#1b2433;border:1px solid #36455e;border-radius:16px;padding:20px;margin:16px 0}#voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}#voices section{margin:0}audio{width:100%;margin:12px 0}input[type=text],textarea{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid #53647d;background:#10151e;color:inherit;font:inherit}textarea{min-height:140px}button{padding:12px 20px;margin:12px 8px 0 0;border:0;border-radius:8px;background:#99e7c9;color:#12291f;font-weight:700;cursor:pointer}label{display:block;margin:8px 0}.picked{border-color:#99e7c9}small{color:#aabbd1}
+</style>
+<h1>npetrov · Голоса для вашей ДнД</h1>
+<p>Послушайте образцы и отметьте голоса, которыми хотите отыгрывать NPC. Можно придумать им свои роли. Это пробное прослушивание: названия конкретных персонажей этим голосам пока не присвоены.</p>
+<section><strong>Исходная реплика</strong><p id="phrase"></p><div id="original"></div><small>Реплика синтезирована по-русски. Образцы обработаны AI без эха и мультяшных фильтров; громкость выровнена для сравнения. На вашем микрофоне результат может отличаться.</small></section>
+<div id="voices"></div>
+<datalist id="roles"><option value="Трактирщик"><option value="Старый маг"><option value="Гоблин"><option value="Орк"><option value="Дворянин"><option value="Злодей"><option value="Рассказчик"></datalist>
+<section><strong>Ваш выбор</strong><p>Скопируйте список в чат — по нему можно собрать подборку ваших NPC. Эта страница не меняет настройки приложения.</p><textarea id="selection" readonly aria-label="Выбранные голоса"></textarea><button id="copy">Скопировать выбор</button><button id="save">Сохранить выбор в файл</button><small id="status"></small></section>
+<p>Страница работает без интернета. Для поиска в VoiceLab используйте номер AI-голоса. Пробные голоса отобраны по различию звучания, а не по автоматической оценке качества.</p>
+<script type="application/json" id="data">__AUDITION_DATA__</script>
+<script>
+'use strict';
+const data=JSON.parse(document.getElementById('data').textContent), chosen=new Map();
+document.getElementById('phrase').textContent=data.text;
+function player(url){const a=document.createElement('audio');a.controls=true;a.preload='none';a.src=url;a.addEventListener('play',()=>document.querySelectorAll('audio').forEach(other=>{if(other!==a)other.pause()}));return a}
+document.getElementById('original').append(player(data.original));
+function summary(){return [...chosen].map(([id,v])=>({id,name:v.name,role:v.role.value.trim()}))}
+function update(){document.getElementById('selection').value=summary().map(v=>`${v.name}${v.role?' → '+v.role:''}\n${v.id}`).join('\n\n')}
+data.voices.forEach((v,index)=>{const card=document.createElement('section'),title=document.createElement('strong'),label=document.createElement('label'),check=document.createElement('input'),role=document.createElement('input');title.textContent=`${index+1}. ${v.name}`;check.type='checkbox';label.append(check,document.createTextNode(' Мне подходит'));role.type='text';role.maxLength=80;role.placeholder='Мой NPC: трактирщик, маг…';role.setAttribute('list','roles');role.setAttribute('aria-label',`Роль для ${v.name}`);role.addEventListener('input',update);check.addEventListener('change',()=>{if(check.checked)chosen.set(v.id,{name:v.name,role});else chosen.delete(v.id);card.classList.toggle('picked',check.checked);update()});card.append(title,player(v.audio),label,role);document.getElementById('voices').append(card)});
+document.getElementById('copy').onclick=async()=>{const area=document.getElementById('selection');area.focus();area.select();try{await navigator.clipboard.writeText(area.value);document.getElementById('status').textContent='Скопировано'}catch{document.getElementById('status').textContent='Нажмите Ctrl+C, чтобы скопировать выделенный список'}};
+document.getElementById('save').onclick=()=>{const blob=new Blob([JSON.stringify({schema:1,voices:summary()},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='npetrov-dnd-voices.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+</script></html>

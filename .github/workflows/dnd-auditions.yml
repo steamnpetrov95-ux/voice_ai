@@ -1,0 +1,73 @@
+name: Russian DnD voice auditions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditions:
+    if: github.event.repository.private && github.repository == 'steamnpetrov95-ux/voice_ai'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install and test the audition renderer
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          if ($LASTEXITCODE -ne 0) { throw 'Locked dependencies failed' }
+          python -m pip install --no-deps --no-build-isolation -e .
+          if ($LASTEXITCODE -ne 0) { throw 'Application installation failed' }
+          python -m pytest tests/test_auditions.py -q
+          if ($LASTEXITCODE -ne 0) { throw 'Audition tests failed' }
+      - name: Restore the pinned personal SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/prepare-native-windows.ps1
+      - name: Generate the common Russian reference with offline Piper
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+            python -m venv .piper-env
+            .piper-env/Scripts/python -m pip install piper-tts==1.3.0 onnxruntime==1.20.1 numpy==2.2.6
+            if ($LASTEXITCODE -ne 0) { throw 'Reference TTS installation failed' }
+            New-Item -ItemType Directory .analysis/piper -Force | Out-Null
+            $modelBase = 'https://huggingface.co/rhasspy/piper-voices/resolve/5041a7a49ae5b3a0f30e6837769eb03fdbb231bd/ru/ru_RU/dmitri/medium'
+            Invoke-WebRequest "$modelBase/ru_RU-dmitri-medium.onnx" -OutFile .analysis/piper/voice.onnx
+            Invoke-WebRequest "$modelBase/ru_RU-dmitri-medium.onnx.json" -OutFile .analysis/piper/voice.onnx.json
+            if ((Get-FileHash .analysis/piper/voice.onnx -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f073356ebc4bd0f80c5af58df2953a5988bd5bdab1eb38635ce960b071fbefcb') { throw 'Unexpected reference model hash' }
+            if ((Get-FileHash .analysis/piper/voice.onnx.json -Algorithm SHA256).Hash.ToLowerInvariant() -ne '667ef3117bc642c2892dff7690d8bdc8ca4228aeaa783b2dc1416df632855e0d') { throw 'Unexpected reference config hash' }
+            .piper-env/Scripts/python -m piper --model .analysis/piper/voice.onnx --input-file samples/dnd-reference-ru.txt --output-file .analysis/dnd-reference-ru.wav --sentence-silence 0.16 --volume 0.5
+            if ($LASTEXITCODE -ne 0) { throw 'Reference speech synthesis failed' }
+          } catch {
+            Write-Host ('::error title=Russian reference::' + $_.Exception.Message.Replace("`r", ' ').Replace("`n", ' '))
+            throw
+          }
+      - name: Render native AI candidates with networking blocked
+        run: |
+          $nativePython = (python -c "import sys; print(sys.executable)").Trim()
+          New-NetFirewallRule -DisplayName 'npetrov DnD auditions' -Direction Outbound -Program $nativePython -Action Block -Profile Any | Out-Null
+          try {
+            python scripts/make-dnd-auditions.py --models dist/native-sdk --speech .analysis/dnd-reference-ru.wav
+            if ($LASTEXITCODE -ne 0) { throw 'AI audition rendering failed' }
+          } finally {
+            Remove-NetFirewallRule -DisplayName 'npetrov DnD auditions'
+          }
+      - name: Attach the listening page to the existing personal release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload v0.3.3 dist/DnD-voice-auditions.html dist/DnD-voice-auditions.json --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Audition page upload failed' }

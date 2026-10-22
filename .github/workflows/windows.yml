@@ -8,6 +8,12 @@ on:
       - 'scripts/inspect-neural-assets.py'
       - '.github/workflows/neural-models.yml'
       - 'scripts/remote_zip.py'
+      - 'scripts/make-dnd-auditions.py'
+      - 'scripts/dnd-auditions.html'
+      - 'tests/test_auditions.py'
+      - 'samples/dnd-reference-ru.txt'
+      - 'docs/DND_VOICE_AUDITIONS.md'
+      - '.github/workflows/dnd-auditions.yml'
   pull_request:
   workflow_dispatch:
     inputs:
