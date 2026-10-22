@@ -189,10 +189,10 @@ class NeuralPanel(QWidget):
                                 "Полный: более точное определение высоты, но выше нагрузка и расход памяти.")
         layout.addWidget(self.profile)
         self.buffer = QComboBox()
-        for milliseconds in (160, 320, 480, 640):
+        for milliseconds in (40, 80, 160, 320, 480, 640):
             self.buffer.addItem(f"Буфер AI: {milliseconds} мс", milliseconds)
         selected_buffer = self.buffer.findData(preferences.get("ai_buffer_ms", 320))
-        self.buffer.setCurrentIndex(selected_buffer if selected_buffer >= 0 else 1)
+        self.buffer.setCurrentIndex(selected_buffer if selected_buffer >= 0 else self.buffer.findData(320))
         self.buffer.setToolTip("Меньший буфер уменьшает задержку. При прерываниях звука выберите больший.")
         layout.addWidget(self.buffer)
         for combo in (self.voice_combo, self.provider, self.profile, self.buffer):
@@ -204,7 +204,7 @@ class NeuralPanel(QWidget):
         self.reload(preferences.get("ai_voice"))
         if preferences.get("ai_backend") is None and self.voices and getattr(self.voices[0], "backend", "rvc") == "native":
             self.voice_combo.setCurrentIndex(0)
-            self.buffer.setCurrentIndex(self.buffer.findData(160))
+            self.buffer.setCurrentIndex(self.buffer.findData(80))
         for combo in (self.mode, self.voice_combo, self.provider, self.profile, self.buffer):
             combo.currentIndexChanged.connect(self.update_state)
         self.update_state()
@@ -243,6 +243,16 @@ class NeuralPanel(QWidget):
         self.voice_combo.blockSignals(False)
 
     def update_state(self, *args):
+        for index in range(self.buffer.count()):
+            self.buffer.model().item(index).setEnabled(self.native or self.buffer.itemData(index) >= 160)
+        if not self.native and self.buffer.currentData() < 160:
+            self.buffer.blockSignals(True)
+            self.buffer.setCurrentIndex(self.buffer.findData(160))
+            self.buffer.blockSignals(False)
+        self.buffer.setToolTip("Начните с 80 мс; 40 мс подходит при устойчивом звуке. "
+                               "При щелчках и пропусках выберите 160 мс."
+                               if self.native else
+                               "Меньший буфер уменьшает задержку. При прерываниях звука выберите больший.")
         self.voice_combo.setVisible(self.active)
         self.provider.setVisible(self.active and not self.native)
         self.profile.setVisible(self.active and not self.native)

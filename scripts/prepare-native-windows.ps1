@@ -14,7 +14,5 @@ Expand-Archive .analysis/tool/innoextract-1.9-windows.zip .analysis/tool/unpacke
 & .analysis/tool/unpacked/innoextract.exe --extract --silent --output-dir .analysis/extracted $installer
 if ($LASTEXITCODE -ne 0) { throw 'Extraction failed' }
 Invoke-WebRequest 'https://raw.githubusercontent.com/dev6699/rvc-onnx/9d20b0ff54df72e83c2826e76c2e1eff5f1ab824/assets/input_1.wav' -OutFile .analysis/speech.wav
-python scripts/fetch-native-catalog.py --profiles .analysis/extracted/app/vc_model --output .analysis/catalog.json
-if ($LASTEXITCODE -ne 0) { throw 'Catalogue inspection failed' }
-python scripts/prepare-native-sdk.py --source .analysis/extracted/app --catalog .analysis/catalog.json
+python scripts/prepare-native-sdk.py --source .analysis/extracted/app
 if ($LASTEXITCODE -ne 0) { throw 'Native preparation failed' }

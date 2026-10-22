@@ -72,6 +72,8 @@ jobs:
           try {
             python scripts/run-native-validation.py --models dist/native-sdk --speech .analysis/speech.wav --stream-seconds 65
             if ($LASTEXITCODE -ne 0) { throw 'Native profile validation failed' }
+            python scripts/benchmark-native-latency.py --models dist/native-sdk --speech .analysis/speech.wav
+            if ($LASTEXITCODE -ne 0) { throw 'Native short buffer benchmark failed' }
           } finally {
             Remove-NetFirewallRule -DisplayName 'npetrov native validation'
           }
@@ -176,7 +178,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the draft release' }
           }
           $releaseAssets = @('dist/installer/VoiceLab-Setup.exe', 'dist/installer/VoiceLab-Setup.exe.sha256')
-          foreach ($optionalAsset in @('dist/neural-benchmark.json', 'dist/native-benchmark.json', 'dist/native-reference.wav')) {
+          foreach ($optionalAsset in @('dist/neural-benchmark.json', 'dist/native-benchmark.json', 'dist/native-reference.wav', 'dist/native-latency.json')) {
             if (Test-Path $optionalAsset) { $releaseAssets += $optionalAsset }
           }
           gh release upload $tag @releaseAssets --clobber

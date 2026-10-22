@@ -96,6 +96,107 @@ def test_queue_overload_discards_old_audio_and_underrun_plays_silence():
     assert engine.dropouts == 2
 
 
+def test_output_callback_preserves_samples_across_different_driver_sizes():
+    pending = queue.Queue()
+    source = np.arange(1031, dtype=np.float32) / 2000
+    for block in np.split(source, [73, 201, 206]):
+        pending.put(block)
+    state = audio.OutputState()
+    output = []
+    for frames in (15, 71, 300, 1, 644):
+        block = np.empty((frames, 2), np.float32)
+        assert audio.AudioEngine._fill_output(pending, block, frames, state)
+        np.testing.assert_array_equal(block[:, 0], block[:, 1])
+        output.append(block[:, 0])
+    np.testing.assert_array_equal(np.concatenate(output), source)
+    empty = np.ones((10, 2), np.float32)
+    assert not audio.AudioEngine._fill_output(pending, empty, 10, state)
+    assert not empty.any()
+
+
+def test_partial_output_underrun_cannot_replay_old_audio():
+    pending, state = queue.Queue(), audio.OutputState()
+    pending.put(np.array([0.1, 0.2, 0.3], np.float32))
+    output = np.ones((5, 1), np.float32)
+    assert not audio.AudioEngine._fill_output(pending, output, 5, state)
+    np.testing.assert_allclose(output[:, 0], [0.1, 0.2, 0.3, 0, 0])
+    pending.put(np.array([0.4, 0.5], np.float32))
+    assert audio.AudioEngine._fill_output(pending, output[:1], 1, state)
+    np.testing.assert_allclose(output[:1, 0], [0.4])
+    assert not audio.AudioEngine._fill_output(pending, output[:2], 2, state)
+    np.testing.assert_allclose(output[:2, 0], [0.5, 0])
+
+
+@pytest.mark.parametrize("milliseconds", [40, 80])
+@pytest.mark.parametrize("rate", [48000, 44100])
+def test_native_small_host_callbacks_feed_both_outputs_without_truncation(devices, monkeypatch, milliseconds, rate):
+    from types import SimpleNamespace
+    from voicelab import neural
+
+    class Converter:
+        provider = "NativeCPUExecutionProvider"
+
+        def process(self, samples, pitch):
+            return samples * 0.5
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(neural, "create_converter", lambda *args: Converter())
+
+    def supported(**kwargs):
+        if kwargs["samplerate"] != rate:
+            raise ValueError("Unsupported rate")
+
+    monkeypatch.setattr(audio.sd, "check_input_settings", supported)
+    engine = audio.AudioEngine()
+    engine.configure_neural(SimpleNamespace(backend="native", name="Native"), buffer_ms=milliseconds)
+    engine.configure(VoiceSettings(clarity=0))
+    engine.start(0, 1)
+    try:
+        deadline = time.monotonic() + 3
+        while engine.loading and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert not engine.loading
+        engine.start_monitoring(2)
+        assert engine._input.kwargs["blocksize"] == 0
+        assert engine._output.kwargs["blocksize"] == 0
+        assert engine._monitor.kwargs["blocksize"] == 0
+        source = np.linspace(0.1, 0.3, engine.block_size, dtype=np.float32)
+        for offset in range(0, len(source), 229):
+            block = source[offset:offset + 229, None]
+            engine._capture(block, len(block), None, False)
+        wait_for_audio(engine)
+        primary, monitor = [], []
+        for offset in range(0, len(source), 257):
+            frames = min(257, len(source) - offset)
+            first, second = np.zeros((frames, 2), np.float32), np.zeros((frames, 2), np.float32)
+            engine._play(first, frames, None, False)
+            engine._monitor.kwargs["callback"](second, frames, None, False)
+            np.testing.assert_array_equal(first, second)
+            primary.append(first[:, 0])
+            monitor.append(second[:, 0])
+        np.testing.assert_allclose(np.concatenate(primary), source * 0.5, atol=1e-5)
+        assert engine.dropouts == 0
+    finally:
+        engine.stop()
+
+
+def test_native_capture_discards_partial_audio_from_model_loading():
+    from types import SimpleNamespace
+    engine = audio.AudioEngine()
+    engine.neural_voice = SimpleNamespace(backend="native")
+    engine.block_size = 8
+    engine._capture_buffer = np.empty(8, np.float32)
+    engine._capture(np.ones((5, 1), np.float32), 5, None, False)
+    engine.loading = True
+    engine._capture(np.ones((2, 1), np.float32), 2, None, False)
+    engine.loading = False
+    engine._capture(np.full((8, 1), 0.25, np.float32), 8, None, False)
+    np.testing.assert_array_equal(engine._in_queue.get_nowait(), np.full(8, 0.25, np.float32))
+    assert engine._in_queue.empty()
+
+
 def test_recording_requires_running_engine(tmp_path):
     with pytest.raises(RuntimeError):
         audio.AudioEngine().start_recording(tmp_path / "test.wav")

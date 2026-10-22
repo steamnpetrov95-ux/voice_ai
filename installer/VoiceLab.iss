@@ -1,7 +1,7 @@
 ﻿; Compile after PyInstaller has created dist\VoiceLab.
 ; One downloadable installer; Python and Qt are included in the application.
 #ifndef AppVersion
-  #define AppVersion "0.3.0"
+  #define AppVersion "0.3.1"
 #endif
 
 [Setup]

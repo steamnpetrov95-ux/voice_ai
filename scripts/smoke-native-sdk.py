@@ -6,11 +6,9 @@ import json
 import math
 import os
 from pathlib import Path
-import queue
 import statistics
 import subprocess
 import tempfile
-import threading
 import time
 import urllib.request
 
@@ -22,47 +20,74 @@ from voicelab.neural import resample
 
 
 def threaded_route(voices, samples):
-    """Exercise the actual audio worker and monitor fanout with Qt loaded."""
+    """Real SDK and audio callbacks, using a host stub instead of sound hardware."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from unittest.mock import patch
     from PySide6.QtWidgets import QApplication
-    from voicelab.audio import AudioEngine
+    from voicelab import audio
     from voicelab.presets import VoiceSettings
 
+    class Stream:
+        def __init__(self, **kwargs):
+            self.kwargs, self.active = kwargs, False
+
+        def start(self):
+            self.active = True
+
+        def close(self):
+            self.active = False
+
     application = QApplication.instance() or QApplication([])
-    engine = AudioEngine()
-    engine.configure_neural(voices[0], buffer_ms=160)
-    engine.configure(VoiceSettings(clarity=0))
-    engine.running, engine.loading = True, True
-    engine._output = object()
-    engine._monitor_queue = queue.Queue(2)
-    worker = threading.Thread(target=engine._process)
-    worker.start()
-    peak = 0
-    try:
-        deadline = time.monotonic() + 15
-        while engine.loading and time.monotonic() < deadline:
-            application.processEvents()
-            time.sleep(0.01)
-        assert not engine.loading and not engine.error, engine.error
-        for index, offset in enumerate(range(0, len(samples), 7680)):
-            if index in (5, 10, 15):
-                engine.switch_native_voice(voices[index * 60])
-            block = samples[offset:offset + 7680]
-            engine._in_queue.put(np.pad(block, (0, 7680 - len(block))))
-            primary = engine._out_queue.get(timeout=5)
-            monitor = engine._monitor_queue.get(timeout=5)
-            np.testing.assert_array_equal(primary, monitor)
-            assert len(primary) == 7680 and np.isfinite(primary).all()
-            peak = max(peak, float(np.max(np.abs(primary))))
-            application.processEvents()
-        assert peak > 1e-4 and not engine.error, engine.error
-        assert engine.neural_voice.id == voices[900].id
-    finally:
-        engine._stop.set()
-        worker.join(timeout=5)
-        assert not worker.is_alive()
-        assert not engine.error, engine.error
-    print("::notice title=Native audio worker::Real SDK, Qt, live voice switching, primary output and monitor passed.", flush=True)
+    for sample_rate, milliseconds in ((48000, 80), (48000, 40), (44100, 80), (44100, 40)):
+        def input_settings(**kwargs):
+            if kwargs["samplerate"] != sample_rate:
+                raise ValueError("Use the requested test sample rate")
+
+        with (patch.object(audio.sd, "InputStream", Stream), patch.object(audio.sd, "OutputStream", Stream),
+              patch.object(audio.sd, "query_devices", lambda *args: {"max_output_channels": 2}),
+              patch.object(audio.sd, "check_input_settings", input_settings),
+              patch.object(audio.sd, "check_output_settings", lambda **kwargs: None)):
+            engine = audio.AudioEngine()
+            engine.configure_neural(voices[0], buffer_ms=milliseconds)
+            engine.configure(VoiceSettings(clarity=0))
+            engine.start(0, 1)
+            peak = 0
+            try:
+                deadline = time.monotonic() + 15
+                while engine.loading and time.monotonic() < deadline:
+                    application.processEvents()
+                    time.sleep(0.01)
+                assert not engine.loading and not engine.error, engine.error
+                engine.start_monitoring(2)
+                assert engine._input.kwargs["blocksize"] == engine._output.kwargs["blocksize"] == 0
+                incoming = resample(samples, 48000, sample_rate)
+                count = engine.block_size
+                for index, offset in enumerate(range(0, len(incoming), count)):
+                    if index in (5, 10, 15):
+                        engine.switch_native_voice(voices[index * 60])
+                    block = np.pad(incoming[offset:offset + count], (0, max(0, offset + count - len(incoming))))
+                    for position in range(0, count, 229):
+                        part = block[position:position + 229, None]
+                        engine._capture(part, len(part), None, False)
+                    deadline = time.monotonic() + 5
+                    while (engine._out_queue.empty() or engine._monitor_queue.empty()) and time.monotonic() < deadline:
+                        application.processEvents()
+                        time.sleep(0.001)
+                    assert not engine.error, engine.error
+                    for position in range(0, count, 257):
+                        frames = min(257, count - position)
+                        primary, monitor = np.empty((frames, 2), np.float32), np.empty((frames, 2), np.float32)
+                        engine._play(primary, frames, None, False)
+                        engine._monitor.kwargs["callback"](monitor, frames, None, False)
+                        np.testing.assert_array_equal(primary, monitor)
+                        assert np.isfinite(primary).all()
+                        peak = max(peak, float(np.max(np.abs(primary))))
+                assert peak > 1e-4 and not engine.error, engine.error
+                assert engine.neural_voice.id == voices[900].id and engine.dropouts == 0
+            finally:
+                engine.stop()
+                assert not engine.busy and not engine.error, engine.error
+    print("::notice title=Native audio worker::Real SDK, Qt, 40/80 ms, 48/44.1 kHz, variable callbacks and both outputs passed.", flush=True)
 
 
 def memory_mb():
@@ -116,7 +141,7 @@ def main():
             finally:
                 converter.close()
         timings, details = [], []
-        for sample_rate, count in ((48000, 7680), (48000, 15360), (48000, 23040), (48000, 30720), (44100, 7040)):
+        for sample_rate, count in ((48000, 1920), (48000, 3840), (48000, 7680), (48000, 15360), (48000, 23040), (48000, 30720), (44100, 1792), (44100, 3584), (44100, 7040)):
             print(f"Checking {sample_rate} Hz, {count} frames", flush=True)
             converter = NativeConverter(voices[0], sample_rate)
             incoming = resample(samples, 48000, sample_rate)
@@ -143,22 +168,23 @@ def main():
         stream = None
         if args.stream_seconds:
             converter = NativeConverter(voices[0], 48000)
+            stream_count, stream_duration = 3840, 0.080
             started = time.perf_counter()
             before = memory_mb()
             durations = []
             try:
-                for index in range(math.ceil(args.stream_seconds / 0.160)):
+                for index in range(math.ceil(args.stream_seconds / stream_duration)):
                     if index and index % 100 == 0:
                         converter.select_voice(voices[(index * 3) % len(voices)])
-                    offset = (index * 7680) % len(samples)
-                    block = np.pad(samples[offset:offset + 7680], (0, max(0, offset + 7680 - len(samples))))
+                    offset = (index * stream_count) % len(samples)
+                    block = np.pad(samples[offset:offset + stream_count], (0, max(0, offset + stream_count - len(samples))))
                     block_start = time.perf_counter()
                     output = converter.process(block)
                     durations.append((time.perf_counter() - block_start) * 1000)
-                    assert len(output) == 7680 and np.isfinite(output).all()
-                    deadline = started + (index + 1) * 0.160
+                    assert len(output) == stream_count and np.isfinite(output).all()
+                    deadline = started + (index + 1) * stream_duration
                     time.sleep(max(0, deadline - time.perf_counter()))
-                stream = {"seconds": args.stream_seconds, "blocks": len(durations),
+                stream = {"seconds": args.stream_seconds, "block_ms": 80, "blocks": len(durations),
                           "p95_ms": round(float(np.percentile(durations, 95)), 2),
                           "start_working_mb": before["working_mb"], "end_working_mb": memory_mb()["working_mb"]}
             finally:

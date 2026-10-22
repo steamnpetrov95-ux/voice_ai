@@ -26,6 +26,14 @@ class Device:
         return f"{self.name} · {self.host_api}"
 
 
+class OutputState:
+    """A single output callback owns the remainder of its current DSP block."""
+
+    def __init__(self):
+        self.block = None
+        self.offset = 0
+
+
 def list_devices() -> tuple[list[Device], list[Device]]:
     apis = sd.query_hostapis()
     inputs, outputs = [], []
@@ -76,6 +84,19 @@ class AudioEngine:
         self._stop = threading.Event()
         self._in_queue = queue.Queue(maxsize=6)
         self._out_queue = queue.Queue(maxsize=6)
+        self._out_state = OutputState()
+        self._capture_buffer = None
+        self._capture_offset = 0
+
+    @property
+    def native(self):
+        return getattr(self.neural_voice, "backend", None) == "native"
+
+    @property
+    def output_queue_blocks(self):
+        # The SDK performs inference in bursts. Keep enough short blocks to
+        # bridge one burst without making a slow headset block the main route.
+        return max(2, (160 + self.neural_buffer_ms - 1) // self.neural_buffer_ms) if self.native else 2
 
     def configure(self, settings: VoiceSettings):
         # Frozen settings are replaced atomically. The worker owns all DSP objects.
@@ -84,8 +105,10 @@ class AudioEngine:
     def configure_neural(self, voice=None, provider="auto", buffer_ms=320, profile="light"):
         if self.running:
             raise RuntimeError("Остановите микрофон перед сменой AI-голоса.")
-        if buffer_ms not in (160, 320, 480, 640):
+        if buffer_ms not in (40, 80, 160, 320, 480, 640):
             raise ValueError("Неподдерживаемый размер буфера AI.")
+        if voice is not None and getattr(voice, "backend", None) != "native" and buffer_ms < 160:
+            raise ValueError("Буферы 40 и 80 мс доступны для нативного AI.")
         if profile not in ("light", "full"):
             raise ValueError("Неизвестный профиль AI.")
         self.neural_voice, self.neural_provider = voice, provider
@@ -112,8 +135,11 @@ class AudioEngine:
         self.provider_label = ""
         self.error = ""
         self.dropouts = 0
-        self._in_queue = queue.Queue(maxsize=2 if self.neural_voice else 6)
-        self._out_queue = queue.Queue(maxsize=2 if self.neural_voice else 6)
+        input_blocks = max(1, (80 + self.neural_buffer_ms - 1) // self.neural_buffer_ms) if self.native else 2
+        self._in_queue = queue.Queue(maxsize=input_blocks if self.neural_voice else 6)
+        self._out_queue = queue.Queue(maxsize=self.output_queue_blocks if self.neural_voice else 6)
+        self._out_state = OutputState()
+        self._capture_offset = 0
         self._stop.clear()
         output_channels = min(2, sd.query_devices(output_device, "output")["max_output_channels"]) if output_device is not None else 0
         failures = []
@@ -131,11 +157,13 @@ class AudioEngine:
             raise RuntimeError("Устройства не поддерживают общую частоту 48 или 44,1 кГц. "
                                "Проверьте настройки звука Windows.\n" + "\n".join(failures))
         try:
+            self._capture_buffer = np.empty(self.block_size, dtype=np.float32) if self.native else None
+            io_block_size = 0 if self.native else self.block_size
             self._input = sd.InputStream(device=input_device, channels=1, samplerate=self.sample_rate,
-                                         blocksize=self.block_size, latency="low", dtype="float32", callback=self._capture)
+                                         blocksize=io_block_size, latency="low", dtype="float32", callback=self._capture)
             if output_device is not None:
                 self._output = sd.OutputStream(device=output_device, channels=output_channels,
-                                               samplerate=self.sample_rate, blocksize=self.block_size,
+                                               samplerate=self.sample_rate, blocksize=io_block_size,
                                                latency="low", dtype="float32", callback=self._play)
             self.running = True
             self._worker = threading.Thread(target=self._process, name="voicelab-dsp", daemon=True)
@@ -166,13 +194,14 @@ class AudioEngine:
                                  samplerate=self.sample_rate)
         # Each stream owns its queue: a slow headset cannot consume or block
         # audio destined for the virtual microphone. Old callbacks retain only their old queue.
-        pending = queue.Queue(maxsize=2 if self.neural_voice else 3)
+        pending = queue.Queue(maxsize=self.output_queue_blocks if self.neural_voice else 3)
+        output_state = OutputState()
 
         def play_monitor(outdata, frames, time_info, status):
-            self._fill_output(pending, outdata, frames)
+            self._fill_output(pending, outdata, frames, output_state)
 
         stream = sd.OutputStream(device=device, channels=channels, samplerate=self.sample_rate,
-                                 blocksize=self.block_size, latency="low", dtype="float32",
+                                 blocksize=0 if self.native else self.block_size, latency="low", dtype="float32",
                                  callback=play_monitor)
         try:
             stream.start()
@@ -194,23 +223,48 @@ class AudioEngine:
     def _capture(self, indata, frames, time_info, status):
         if status:
             self.dropouts += 1
+        if self.native:
+            # The host chooses its own small callback size. Accumulate exactly
+            # one AI block here; never replay a partial block captured at load.
+            if self.loading:
+                self._capture_offset = 0
+                return
+            offset = 0
+            while offset < frames:
+                count = min(frames - offset, self.block_size - self._capture_offset)
+                self._capture_buffer[self._capture_offset:self._capture_offset + count] = indata[offset:offset + count, 0]
+                self._capture_offset += count
+                offset += count
+                if self._capture_offset == self.block_size:
+                    self._offer(self._in_queue, self._capture_buffer.copy())
+                    self._capture_offset = 0
+            return
         self._offer(self._in_queue, indata[:, 0].copy())
 
     def _play(self, outdata, frames, time_info, status):
         if status:
             self.dropouts += 1
-        if not self._fill_output(self._out_queue, outdata, frames) and not self.loading:
+        if not self._fill_output(self._out_queue, outdata, frames, self._out_state) and not self.loading:
             self.dropouts += 1
 
     @staticmethod
-    def _fill_output(pending, outdata, frames):
+    def _fill_output(pending, outdata, frames, state=None):
         outdata.fill(0)
-        try:
-            block = pending.get_nowait()
-        except queue.Empty:
-            return False
-        count = min(frames, len(block))
-        outdata[:count, :] = block[:count, None]
+        state = state if state is not None else OutputState()
+        position = 0
+        while position < frames:
+            if state.block is None:
+                try:
+                    state.block = pending.get_nowait()
+                    state.offset = 0
+                except queue.Empty:
+                    return False
+            count = min(frames - position, len(state.block) - state.offset)
+            outdata[position:position + count, :] = state.block[state.offset:state.offset + count, None]
+            state.offset += count
+            position += count
+            if state.offset == len(state.block):
+                state.block = None
         return True
 
     def _offer(self, target: queue.Queue, block, count_dropouts=True):

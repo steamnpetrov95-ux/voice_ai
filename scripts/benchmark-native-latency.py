@@ -26,38 +26,45 @@ def main():
     original = resample(source.mean(axis=1), rate, 48000)
     results = []
     for index in (0, 200, 600, 1000, 1240):
-        for milliseconds in (160, 80, 40):
-            count = 48 * milliseconds
-            converter = NativeConverter(voices[index], 48000)
+        reference_rms = {}
+        for sample_rate, milliseconds in ((48000, 160), (48000, 80), (48000, 40), (44100, 80), (44100, 40)):
+            count = round(sample_rate * milliseconds / 1000 / 128) * 128
+            converter = NativeConverter(voices[index], sample_rate)
+            incoming = resample(original, 48000, sample_rate)
             outputs, elapsed = [], []
             try:
-                for offset in range(0, len(original), count):
-                    block = np.pad(original[offset:offset + count], (0, max(0, offset + count - len(original))))
+                for offset in range(0, len(incoming), count):
+                    block = np.pad(incoming[offset:offset + count], (0, max(0, offset + count - len(incoming))))
                     started = time.perf_counter()
                     converted = converter.process(block)
                     elapsed.append((time.perf_counter() - started) * 1000)
                     assert converted.shape == block.shape and np.isfinite(converted).all()
                     outputs.append(converted)
-                output = np.concatenate(outputs)[:len(original)]
+                output = np.concatenate(outputs)[:len(incoming)]
                 assert np.max(np.abs(output)) > 1e-4, "Output is silent"
-                assert np.mean(np.abs(output - original)) > 1e-4, "Output is unchanged"
+                assert np.mean(np.abs(output - incoming)) > 1e-4, "Output is unchanged"
                 warmup = math.ceil(320 / milliseconds)
                 durations = elapsed[warmup:]
-                result = {"profile": index + 1, "block_ms": milliseconds,
+                rms = float(np.sqrt(np.mean(output * output)))
+                if sample_rate in reference_rms:
+                    assert 0.75 < rms / reference_rms[sample_rate] < 1.25, "Short blocks change speech energy unexpectedly"
+                else:
+                    reference_rms[sample_rate] = rms
+                result = {"profile": index + 1, "rate": sample_rate, "block_ms": milliseconds,
                           "median_ms": round(float(np.median(durations)), 2),
                           "p95_ms": round(float(np.percentile(durations, 95)), 2),
                           "max_ms": round(max(durations), 2),
-                          "rms": round(float(np.sqrt(np.mean(output * output))), 5)}
+                          "rms": round(rms, 5)}
                 results.append(result)
-                print("::notice title=Native latency::" + json.dumps(result), flush=True)
+                print("Native latency: " + json.dumps(result), flush=True)
                 args.output.parent.mkdir(parents=True, exist_ok=True)
-                if index == 0:
-                    sf.write(args.output.with_name(f"native-{milliseconds}ms.wav"), output, 48000)
+                if index == 0 and sample_rate == 48000:
+                    sf.write(args.output.with_name(f"native-{milliseconds}ms.wav"), output, sample_rate)
             finally:
                 converter.close()
     args.output.write_text(json.dumps({"note": "Windows CI CPU, not i7-2600; excludes devices and cable latency.",
                                       "results": results}, indent=2), encoding="utf-8")
-    print("::warning title=Native latency summary::" + json.dumps(results), flush=True)
+    print("::notice title=Native latency summary::" + json.dumps(results), flush=True)
 
 
 if __name__ == "__main__":

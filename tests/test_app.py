@@ -251,3 +251,20 @@ def test_large_ai_catalog_keeps_only_one_page_of_buttons(window, monkeypatch, tm
     assert window.ai.voice.speaker_id == 1241
     assert window.ai.provider.isHidden() and window.ai.profile.isHidden()
     assert window.ai.rename_button.isVisible()
+
+
+def test_short_buffers_are_available_only_for_native_voices(window, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from voicelab import neural_ui
+    from voicelab.native import NativeVoice
+    native = NativeVoice("native-" + "1" * 32, "Native", tmp_path, 1)
+    rvc = SimpleNamespace(id="rvc", name="RVC", credit="")
+    monkeypatch.setattr(neural_ui, "installed_voices", lambda: [native, rvc])
+    window.ai.reload(native.id)
+    window.ai.mode.setCurrentIndex(0)
+    window.ai.buffer.setCurrentIndex(window.ai.buffer.findData(80))
+    assert window.ai.buffer.currentData() == 80
+    window.ai.voice_combo.setCurrentIndex(1)
+    assert window.ai.buffer.currentData() >= 160
+    for milliseconds in (40, 80):
+        assert not window.ai.buffer.model().item(window.ai.buffer.findData(milliseconds)).isEnabled()

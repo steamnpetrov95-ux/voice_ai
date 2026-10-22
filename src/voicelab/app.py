@@ -747,9 +747,11 @@ class MainWindow(QMainWindow):
                 duration = self.engine.block_size * 1000 / self.engine.sample_rate
                 profile = ("нативный AI" if getattr(self.engine.neural_voice, "backend", "rvc") == "native"
                            else "лёгкий AI" if self.engine.neural_profile == "light" else "полный AI")
-                self.rate_label.setText(f"{self.engine.provider_label} · {profile} · {self.engine.processing_ms:.0f} мс / блок {duration:.0f} мс")
+                self.rate_label.setText(f"{self.engine.provider_label} · обработка {self.engine.processing_ms:.0f} мс · блок {duration:.0f} мс")
                 names = {"encoder": "Анализ речи", "pitch": "Высота голоса", "voice": "Модель голоса", "decoder": "Синтез", "native": "Нативный движок"}
-                self.rate_label.setToolTip("\n".join(f"{names.get(key, key)}: {value:.0f} мс" for key, value in self.engine.stage_ms.items()))
+                self.rate_label.setToolTip(profile + ". Время обработки не равно полной задержке: добавляются "
+                                          "накопление звука, аудиодрайверы и виртуальный кабель.\n"
+                                          + "\n".join(f"{names.get(key, key)}: {value:.0f} мс" for key, value in self.engine.stage_ms.items()))
         if self.engine.running and self.monitor_check.isChecked() and not self.engine.monitoring:
             self.monitor_check.setChecked(False)
         if self.engine.monitor_error:
@@ -765,9 +767,13 @@ class MainWindow(QMainWindow):
             if self.engine.loading:
                 self.signal_hint.setText("Загрузка нейросетей. Звук начнёт передаваться после подготовки модели.")
             elif self.engine.neural_voice and self.engine.processing_ms > self.engine.block_size * 1000 / self.engine.sample_rate:
-                self.signal_hint.setText("AI не успевает за речью. Остановите микрофон: выберите лёгкий AI, видеокарту и буфер 480/640 мс.")
+                self.signal_hint.setText("Мало запаса по времени. Если звук прерывается, остановите микрофон и увеличьте буфер AI."
+                                         if self.engine.native else
+                                         "AI не успевает за речью. Остановите микрофон: выберите лёгкий AI, видеокарту и буфер 480/640 мс.")
             else:
-                self.signal_hint.setText(f"Потери аудиобуфера: {self.engine.dropouts}. При росте счётчика закройте тяжёлые приложения.")
+                self.signal_hint.setText(f"Потери аудиобуфера: {self.engine.dropouts}. "
+                                         + ("Если счётчик растёт, увеличьте буфер AI." if self.engine.native else
+                                            "При росте счётчика закройте тяжёлые приложения."))
         else:
             self.signal_hint.setText("Наденьте наушники перед включением прослушивания.")
         if self.engine.recording_path:
